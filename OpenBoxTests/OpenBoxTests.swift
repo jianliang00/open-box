@@ -6,11 +6,26 @@
 //
 
 import Testing
+@testable import OpenBox
 
 struct OpenBoxTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    @Test func normalizedIdentifierBaseCollapsesUnsupportedCharacters() async throws {
+        #expect(
+            ContainerSDKService.normalizedIdentifierBase("My Sandbox 🚀 / Beta")
+                == "my-sandbox-beta"
+        )
     }
 
+    @Test func generatedSandboxIDMatchesContainerSyntax() async throws {
+        let identifier = ContainerSDKService.makeSandboxID(name: "Sandbox For QA")
+        #expect(identifier.hasPrefix("openbox-sandbox-for-qa-"))
+        #expect(identifier.count <= 63)
+        #expect(
+            identifier.range(
+                of: #"^[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9])?$"#,
+                options: .regularExpression
+            ) != nil
+        )
+    }
 }

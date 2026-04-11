@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */; };
+		70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A41 /* ContainerKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		40992CEF2F24F5AD008AEFEB /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +57,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */,
+				70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +119,8 @@
 			);
 			name = OpenBox;
 			packageProductDependencies = (
+				70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */,
+				70A1B2C3D4E5F60718293A41 /* ContainerKit */,
 			);
 			productName = OpenBox;
 			productReference = 40992CDE2F24F5AB008AEFEB /* OpenBox.app */;
@@ -195,6 +204,9 @@
 			);
 			mainGroup = 40992CD52F24F5AB008AEFEB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 40992CDF2F24F5AB008AEFEB /* Products */;
 			projectDirPath = "";
@@ -267,6 +279,17 @@
 			targetProxy = 40992CF92F24F5AD008AEFEB /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jianliang00/container";
+			requirement = {
+				kind = exactVersion;
+				version = 0.0.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		40992D002F24F5AD008AEFEB /* Debug */ = {
@@ -390,7 +413,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = OpenBox/OpenBox.entitlements;
+				CODE_SIGN_ENTITLEMENTS = OpenBox/OpenBox.Debug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PAG42SCX8D;
@@ -410,13 +433,13 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hellogeek.OpenBox;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
@@ -449,13 +472,13 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hellogeek.OpenBox;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
@@ -477,7 +500,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hellogeek.OpenBoxTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
@@ -500,7 +523,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hellogeek.OpenBoxTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
@@ -522,7 +545,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hellogeek.OpenBoxUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
@@ -544,7 +567,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hellogeek.OpenBoxUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
@@ -554,6 +577,19 @@
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			productName = ContainerAPIClient;
+		};
+		70A1B2C3D4E5F60718293A41 /* ContainerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			productName = ContainerKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */
 		40992CD92F24F5AB008AEFEB /* Build configuration list for PBXProject "OpenBox" */ = {
