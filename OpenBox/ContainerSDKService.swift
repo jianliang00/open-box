@@ -14,6 +14,11 @@ struct SandboxInventory {
     var details: [String: SandboxDetail]
 }
 
+struct SandboxSnapshotRecord {
+    var record: SandboxRecord
+    var detail: SandboxDetail
+}
+
 enum ContainerSDKServiceError: LocalizedError {
     case emptyReference
     case invalidWorkspacePath(String)
@@ -91,6 +96,16 @@ actor ContainerSDKService {
         }
 
         return SandboxInventory(sandboxes: sandboxes, details: details)
+    }
+
+    func loadSandbox(id: String) async throws -> SandboxSnapshotRecord {
+        let kit = Self.makeKit()
+        let snapshot = try await kit.getContainer(id: id)
+        let detail = await loadSandboxDetail(id: id)
+        return SandboxSnapshotRecord(
+            record: Self.makeSandboxRecord(from: snapshot, detail: detail),
+            detail: detail
+        )
     }
 
     func pullImage(reference: String) async throws -> OCIImageRecord {

@@ -392,6 +392,12 @@ struct SandboxDetailView: View {
     let detail: SandboxDetail?
     let onRunCommand: () -> Void
 
+    private var runningWorkloadIDs: [String] {
+        detail?.workloads
+            .filter { $0.status == .running }
+            .map(\.id) ?? []
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -509,6 +515,14 @@ struct SandboxDetailView: View {
             }
             .padding(24)
         }
+        .task(id: runningWorkloadIDs) {
+            guard !runningWorkloadIDs.isEmpty else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                await appState.refreshSandbox(id: sandbox.id)
+            }
+        }
     }
 }
 
@@ -534,8 +548,8 @@ struct WorkloadCard: View {
             PropertyRow(label: "Started", value: workload.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
             PropertyRow(label: "Exited", value: workload.exitedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
             PropertyRow(label: "Exit Code", value: workload.exitCode.map(String.init) ?? "—")
-            PathBlock(title: "STDOUT", path: workload.stdoutLogPath)
-            PathBlock(title: "STDERR", path: workload.stderrLogPath)
+            LiveLogBlock(title: "STDOUT", path: workload.stdoutLogPath, isFollowing: workload.status == .running)
+            LiveLogBlock(title: "STDERR", path: workload.stderrLogPath, isFollowing: workload.status == .running)
 
             HStack(spacing: 12) {
                 if workload.status == .running {
@@ -962,6 +976,166 @@ struct PathBlock: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+        }
+    }
+}
+
+struct LiveLogBlock: View {
+    private static let bottomID = "log-bottom"
+
+    let title: String
+    let path: String?
+    let isFollowing: Bool
+
+    @State private var snapshot = LogFileSnapshot.missingPath
+
+    private var taskID: String {
+        "\(path ?? "")|\(isFollowing)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if isFollowing {
+                    Label("Live", systemImage: "record.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.accent)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+
+            if let path, !path.isEmpty {
+                Text(path)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView([.vertical, .horizontal]) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if snapshot.isTruncated {
+                            Text("Showing the last \(LogFileSnapshot.byteLimitLabel).")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Text(snapshot.displayText)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(snapshot.foregroundColor)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .id(Self.bottomID)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: 92, maxHeight: 180)
+                .background(AppTheme.background.opacity(0.82))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                )
+                .onChange(of: snapshot.displayText) { _, _ in
+                    guard isFollowing else { return }
+                    proxy.scrollTo(Self.bottomID, anchor: .bottom)
+                }
+            }
+        }
+        .task(id: taskID) {
+            await streamLog()
+        }
+    }
+
+    @MainActor
+    private func streamLog() async {
+        guard let path, !path.isEmpty else {
+            snapshot = .missingPath
+            return
+        }
+
+        while !Task.isCancelled {
+            let nextSnapshot = await LogFileSnapshot.load(path: path)
+            guard !Task.isCancelled else { return }
+            snapshot = nextSnapshot
+
+            guard isFollowing else { return }
+            try? await Task.sleep(nanoseconds: 700_000_000)
+        }
+    }
+}
+
+struct LogFileSnapshot: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case missingPath
+        case waiting
+        case empty
+        case content
+        case error
+    }
+
+    static let byteLimit = 64 * 1024
+    static let byteLimitLabel = "64 KB"
+    static let missingPath = LogFileSnapshot(kind: .missingPath, text: "No log path was returned.", isTruncated: false)
+
+    var kind: Kind
+    var text: String
+    var isTruncated: Bool
+
+    var displayText: String {
+        text
+    }
+
+    var foregroundColor: Color {
+        switch kind {
+        case .error:
+            return AppTheme.danger
+        case .missingPath, .waiting, .empty:
+            return .secondary
+        case .content:
+            return .primary
+        }
+    }
+
+    static func load(path: String) async -> LogFileSnapshot {
+        await Task.detached(priority: .utility) {
+            read(path: path)
+        }.value
+    }
+
+    private static func read(path: String) -> LogFileSnapshot {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            return LogFileSnapshot(kind: .waiting, text: "Waiting for log output...", isTruncated: false)
+        }
+        guard !isDirectory.boolValue else {
+            return LogFileSnapshot(kind: .error, text: "Log path points to a directory.", isTruncated: false)
+        }
+
+        do {
+            let fileHandle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+            defer { try? fileHandle.close() }
+
+            let size = try fileHandle.seekToEnd()
+            let isTruncated = size > UInt64(byteLimit)
+            let offset = isTruncated ? size - UInt64(byteLimit) : 0
+            try fileHandle.seek(toOffset: offset)
+            let data = try fileHandle.readToEnd() ?? Data()
+            let text = String(decoding: data, as: UTF8.self)
+
+            guard !text.isEmpty else {
+                return LogFileSnapshot(kind: .empty, text: "No output yet.", isTruncated: false)
+            }
+
+            return LogFileSnapshot(kind: .content, text: text, isTruncated: isTruncated)
+        } catch {
+            return LogFileSnapshot(kind: .error, text: error.openBoxMessage, isTruncated: false)
         }
     }
 }

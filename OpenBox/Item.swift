@@ -304,6 +304,23 @@ final class AppState: ObservableObject {
         reconcileSelections()
     }
 
+    func refreshSandbox(id: String) async {
+        guard !isRefreshing else { return }
+
+        do {
+            let sandbox = try await service.loadSandbox(id: id)
+            if let index = sandboxes.firstIndex(where: { $0.id == sandbox.record.id }) {
+                sandboxes[index] = sandbox.record
+            } else {
+                sandboxes.append(sandbox.record)
+            }
+            sandboxDetails[sandbox.record.id] = sandbox.detail
+            reconcileSelections()
+        } catch {
+            await refreshAll()
+        }
+    }
+
     func pullImage(reference: String) {
         let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
