@@ -41,7 +41,9 @@ struct ContentView: View {
             DetailColumnView(
                 showCreateSandbox: $showingCreateSandbox,
                 createSandboxReference: $createSandboxReference,
-                runWorkloadTarget: $runWorkloadTarget
+                onRunCommand: { sandbox in
+                    runWorkloadTarget = sandbox
+                }
             )
         }
         .task {
@@ -132,13 +134,14 @@ struct SandboxListView: View {
     @Binding var showCreateSandbox: Bool
 
     @State private var searchText = ""
+    @State private var expandedSandboxIDs: Set<String> = []
 
     private var filteredSandboxes: [SandboxRecord] {
-        guard !searchText.isEmpty else { return appState.sandboxes }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return appState.sandboxes }
         return appState.sandboxes.filter { sandbox in
-            sandbox.name.localizedCaseInsensitiveContains(searchText) ||
-            sandbox.imageReference.localizedCaseInsensitiveContains(searchText) ||
-            sandbox.id.localizedCaseInsensitiveContains(searchText)
+            sandboxMatches(sandbox, query: query) ||
+            workloads(for: sandbox).contains { workloadMatches($0, query: query) }
         }
     }
 
@@ -167,25 +170,194 @@ struct SandboxListView: View {
                     message: "Create a sandbox from an OCI image to start managing runtimes through the container SDK."
                 )
             } else {
-                List {
-                    ForEach(filteredSandboxes) { sandbox in
-                        Button {
-                            appState.selectedSandboxID = sandbox.id
-                        } label: {
-                            SandboxRow(sandbox: sandbox)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(filteredSandboxes) { sandbox in
+                            let visibleWorkloads = displayedWorkloads(for: sandbox)
+                            let isExpanded = expandedSandboxIDs.contains(sandbox.id) || !searchText.isEmpty
+
+                            SandboxTreeSandboxRow(
+                                sandbox: sandbox,
+                                workloadCount: workloads(for: sandbox).count,
+                                isExpanded: isExpanded,
+                                isSelected: appState.selectedSandboxID == sandbox.id && appState.selectedWorkloadID == nil,
+                                onTap: {
+                                    appState.selectedSandboxID = sandbox.id
+                                    appState.selectedWorkloadID = nil
+                                    toggleExpansion(for: sandbox)
+                                }
+                            )
+
+                            if isExpanded {
+                                if visibleWorkloads.isEmpty {
+                                    Text("No workloads")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .padding(.leading, 44)
+                                        .padding(.vertical, 6)
+                                } else {
+                                    ForEach(visibleWorkloads) { workload in
+                                        SandboxTreeWorkloadRow(
+                                            workload: workload,
+                                            isSelected: appState.selectedSandboxID == sandbox.id && appState.selectedWorkloadID == workload.id,
+                                            onTap: {
+                                                appState.selectedSandboxID = sandbox.id
+                                                appState.selectedWorkloadID = workload.id
+                                                expandedSandboxIDs.insert(sandbox.id)
+                                            }
+                                        )
+                                        .padding(.leading, 32)
+                                    }
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .listRowBackground(
-                            appState.selectedSandboxID == sandbox.id ? AppTheme.highlight.opacity(0.45) : Color.clear
-                        )
                     }
+                    .padding(.horizontal, 10)
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
             }
         }
-        .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 460)
+        .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 500)
         .padding(.top, 12)
+        .onAppear {
+            if let selectedSandboxID = appState.selectedSandboxID {
+                expandedSandboxIDs.insert(selectedSandboxID)
+            }
+        }
+        .onChange(of: appState.selectedSandboxID) { _, selectedSandboxID in
+            if let selectedSandboxID {
+                expandedSandboxIDs.insert(selectedSandboxID)
+            }
+        }
+    }
+
+    private func workloads(for sandbox: SandboxRecord) -> [WorkloadRecord] {
+        appState.sandboxDetails[sandbox.id]?.workloads ?? []
+    }
+
+    private func displayedWorkloads(for sandbox: SandboxRecord) -> [WorkloadRecord] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !sandboxMatches(sandbox, query: query) else {
+            return workloads(for: sandbox)
+        }
+        return workloads(for: sandbox).filter { workloadMatches($0, query: query) }
+    }
+
+    private func sandboxMatches(_ sandbox: SandboxRecord, query: String) -> Bool {
+        sandbox.name.localizedCaseInsensitiveContains(query) ||
+        sandbox.imageReference.localizedCaseInsensitiveContains(query) ||
+        sandbox.id.localizedCaseInsensitiveContains(query)
+    }
+
+    private func workloadMatches(_ workload: WorkloadRecord, query: String) -> Bool {
+        workload.command.localizedCaseInsensitiveContains(query) ||
+        workload.workingDirectory.localizedCaseInsensitiveContains(query) ||
+        workload.id.localizedCaseInsensitiveContains(query)
+    }
+
+    private func toggleExpansion(for sandbox: SandboxRecord) {
+        if expandedSandboxIDs.contains(sandbox.id) {
+            expandedSandboxIDs.remove(sandbox.id)
+        } else {
+            expandedSandboxIDs.insert(sandbox.id)
+        }
+    }
+}
+
+struct SandboxTreeSandboxRow: View {
+    let sandbox: SandboxRecord
+    let workloadCount: Int
+    let isExpanded: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                sandboxLabel
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(sandbox.status.color)
+                        .frame(width: 6, height: 6)
+
+                    Text(sandbox.status.label)
+                        .foregroundColor(sandbox.status.color)
+
+                    if workloadCount > 0 {
+                        Text("\(workloadCount) \(workloadCount == 1 ? "workload" : "workloads")")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .font(.caption2)
+                .lineLimit(1)
+                .padding(.leading, 40)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? AppTheme.highlight.opacity(0.42) : Color.clear)
+        )
+    }
+
+    private var sandboxLabel: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 12)
+
+            Image(systemName: "folder")
+                .foregroundColor(.secondary)
+                .frame(width: 18)
+
+            Text(sandbox.name)
+                .font(AppTheme.sectionTitleFont)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(1)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+struct SandboxTreeWorkloadRow: View {
+    let workload: WorkloadRecord
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                Image(systemName: workload.status == .running ? "terminal.fill" : "terminal")
+                    .foregroundColor(workload.status == .running ? AppTheme.accent : .secondary)
+                    .frame(width: 18)
+
+                Text(workload.command)
+                    .font(AppTheme.sectionTitleFont)
+                    .lineLimit(1)
+
+                Spacer(minLength: 12)
+
+                Text(workload.startedAt?.compactRelativeDescription ?? workload.status.label)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? AppTheme.highlight.opacity(0.42) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -293,7 +465,7 @@ struct DetailColumnView: View {
 
     @Binding var showCreateSandbox: Bool
     @Binding var createSandboxReference: String?
-    @Binding var runWorkloadTarget: SandboxRecord?
+    let onRunCommand: (SandboxRecord) -> Void
 
     var body: some View {
         switch appState.selectedSidebar {
@@ -302,9 +474,8 @@ struct DetailColumnView: View {
                 SandboxDetailView(
                     sandbox: sandbox,
                     detail: appState.selectedSandboxDetail,
-                    onRunCommand: {
-                        runWorkloadTarget = sandbox
-                    }
+                    selectedWorkload: appState.selectedWorkload,
+                    onRunCommand: onRunCommand
                 )
             } else {
                 EmptyDetailView(
@@ -333,38 +504,6 @@ struct DetailColumnView: View {
     }
 }
 
-struct SandboxRow: View {
-    let sandbox: SandboxRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(sandbox.name)
-                    .font(AppTheme.sectionTitleFont)
-                    .lineLimit(1)
-                Spacer()
-                StatusBadge(text: sandbox.status.label, color: sandbox.status.color)
-            }
-            Text(sandbox.imageReference)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-            HStack(spacing: 12) {
-                StatusPill(text: sandbox.platform, color: AppTheme.warning)
-                StatusPill(text: "\(sandbox.cpuCores) CPU", color: AppTheme.accent)
-                StatusPill(text: "\(sandbox.memoryGB) GB RAM", color: AppTheme.highlight)
-                if let diskGB = sandbox.diskGB {
-                    StatusPill(text: "\(diskGB) GB Disk", color: AppTheme.highlight)
-                }
-                if sandbox.workloadCount > 0 {
-                    StatusPill(text: "\(sandbox.workloadCount) Workloads", color: AppTheme.warning)
-                }
-            }
-        }
-        .padding(.vertical, 6)
-    }
-}
-
 struct ImageRow: View {
     let image: OCIImageRecord
 
@@ -390,7 +529,8 @@ struct SandboxDetailView: View {
 
     let sandbox: SandboxRecord
     let detail: SandboxDetail?
-    let onRunCommand: () -> Void
+    let selectedWorkload: WorkloadRecord?
+    let onRunCommand: (SandboxRecord) -> Void
 
     private var runningWorkloadIDs: [String] {
         detail?.workloads
@@ -405,112 +545,19 @@ struct SandboxDetailView: View {
                     ServiceUnavailableView(message: appState.systemStatus.lastError)
                 }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(sandbox.name)
-                                .font(AppTheme.titleFont)
-                            Text(sandbox.id)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .textSelection(.enabled)
+                if let selectedWorkload {
+                    WorkloadDetailView(
+                        sandbox: sandbox,
+                        workload: selectedWorkload
+                    )
+                } else {
+                    SandboxSummaryCard(
+                        sandbox: sandbox,
+                        detail: detail,
+                        onRunCommand: {
+                            onRunCommand(sandbox)
                         }
-                        Spacer()
-                        StatusBadge(text: sandbox.status.label, color: sandbox.status.color)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button(sandbox.status.isRunning ? "Stop Sandbox" : "Start Sandbox") {
-                            appState.toggleSandbox(sandbox.id)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
-
-                        Button("Run Command") {
-                            onRunCommand()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!sandbox.status.isRunning || appState.isMutating)
-
-                        Button("Remove Sandbox", role: .destructive) {
-                            appState.removeSandbox(sandbox.id)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(appState.isMutating)
-                    }
-                }
-                .padding(18)
-                .background(AppTheme.panel)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                InfoCard(title: "Configuration") {
-                    PropertyRow(label: "OCI Image", value: sandbox.imageReference)
-                    PropertyRow(label: "Digest", value: sandbox.imageDigest)
-                    PropertyRow(label: "Runtime", value: sandbox.runtimeHandler)
-                    PropertyRow(label: "Platform", value: sandbox.platform)
-                    PropertyRow(label: "Resources", value: "\(sandbox.cpuCores) CPU / \(sandbox.memoryGB) GB RAM / \(sandbox.diskGB.map(String.init) ?? "—") GB Disk")
-                    PropertyRow(label: "Workspace", value: sandbox.workspacePath ?? "Not mounted")
-                    PropertyRow(label: "Share Mode", value: sandbox.shareMode?.label ?? "—")
-                    PropertyRow(label: "Started", value: sandbox.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
-                }
-
-                if let lastError = sandbox.lastError ?? detail?.lastError {
-                    InfoCard(title: "Last Error") {
-                        Text(lastError)
-                            .font(.caption)
-                            .foregroundColor(AppTheme.danger)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                InfoCard(title: "Networks") {
-                    if let detail, !detail.networks.isEmpty {
-                        ForEach(detail.networks) { network in
-                            Divider()
-                                .opacity(network.id == detail.networks.first?.id ? 0 : 1)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(network.networkID)
-                                    .font(AppTheme.sectionTitleFont)
-                                PropertyRow(label: "Hostname", value: network.hostname)
-                                PropertyRow(label: "IPv4", value: network.ipv4Address)
-                                PropertyRow(label: "Gateway", value: network.gateway)
-                                PropertyRow(label: "DNS", value: network.dnsServers.joined(separator: ", ").ifEmpty("—"))
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    } else {
-                        Text("No network attachments reported for this sandbox.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                InfoCard(title: "Logs") {
-                    if let logPaths = detail?.logPaths {
-                        PathBlock(title: "Event Log", path: logPaths.eventLogPath)
-                        PathBlock(title: "Boot Log", path: logPaths.bootLogPath)
-                        PathBlock(title: "Guest Agent STDOUT", path: logPaths.guestAgentLogPath)
-                        PathBlock(title: "Guest Agent STDERR", path: logPaths.guestAgentStderrLogPath)
-                    } else {
-                        Text("No sandbox log paths were returned.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                InfoCard(title: "Workloads") {
-                    if let detail, !detail.workloads.isEmpty {
-                        ForEach(detail.workloads) { workload in
-                            WorkloadCard(
-                                sandboxID: sandbox.id,
-                                workload: workload
-                            )
-                        }
-                    } else {
-                        Text("No workloads have been started in this sandbox yet.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                    )
                 }
             }
             .padding(24)
@@ -526,52 +573,233 @@ struct SandboxDetailView: View {
     }
 }
 
-struct WorkloadCard: View {
+struct SandboxSummaryCard: View {
     @EnvironmentObject private var appState: AppState
+    @State private var showingRemoveConfirmation = false
 
-    let sandboxID: String
-    let workload: WorkloadRecord
+    let sandbox: SandboxRecord
+    let detail: SandboxDetail?
+    let onRunCommand: () -> Void
+
+    private var toggleSandboxTitle: String {
+        sandbox.status.isRunning ? "Stop Sandbox" : "Start Sandbox"
+    }
+
+    private var toggleSandboxIcon: String {
+        sandbox.status.isRunning ? "stop.fill" : "play.fill"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(sandbox.name)
+                        .font(AppTheme.titleFont)
+                        .lineLimit(2)
+                    Text(sandbox.id)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                StatusBadge(text: sandbox.status.label, color: sandbox.status.color)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    onRunCommand()
+                } label: {
+                    Label("Run Command", systemImage: "terminal")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(AppTheme.accent)
+                .disabled(!sandbox.status.isRunning || appState.isMutating)
+                .help("Run Command")
+
+                Button {
+                    appState.toggleSandbox(sandbox.id)
+                } label: {
+                    Label(toggleSandboxTitle, systemImage: toggleSandboxIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(sandbox.status.isRunning ? AppTheme.danger : AppTheme.accent)
+                .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
+                .help(toggleSandboxTitle)
+
+                Spacer()
+            }
+            .font(.caption)
+
+            Divider()
+
+            SandboxDetailSection(title: "Configuration") {
+                PropertyRow(label: "OCI Image", value: sandbox.imageReference)
+                PropertyRow(label: "Digest", value: sandbox.imageDigest)
+                PropertyRow(label: "Runtime", value: sandbox.runtimeHandler)
+                PropertyRow(label: "Platform", value: sandbox.platform)
+                PropertyRow(label: "Resources", value: "\(sandbox.cpuCores) CPU / \(sandbox.memoryGB) GB RAM / \(sandbox.diskGB.map(String.init) ?? "—") GB Disk")
+                PropertyRow(label: "Workspace", value: sandbox.workspacePath ?? "Not mounted")
+                PropertyRow(label: "Share Mode", value: sandbox.shareMode?.label ?? "—")
+                PropertyRow(label: "Started", value: sandbox.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+            }
+
+            if let lastError = sandbox.lastError ?? detail?.lastError {
+                Divider()
+                SandboxDetailSection(title: "Last Error") {
+                    Text(lastError)
+                        .font(.caption)
+                        .foregroundColor(AppTheme.danger)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
+            SandboxDetailSection(title: "Networks") {
+                if let detail, !detail.networks.isEmpty {
+                    ForEach(detail.networks) { network in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(network.networkID)
+                                .font(AppTheme.sectionTitleFont)
+                            PropertyRow(label: "Hostname", value: network.hostname)
+                            PropertyRow(label: "IPv4", value: network.ipv4Address)
+                            PropertyRow(label: "Gateway", value: network.gateway)
+                            PropertyRow(label: "DNS", value: network.dnsServers.joined(separator: ", ").ifEmpty("—"))
+                        }
+                        .padding(.vertical, 4)
+
+                        if network.id != detail.networks.last?.id {
+                            Divider()
+                        }
+                    }
+                } else {
+                    Text("No network attachments reported for this sandbox.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider()
+
+            SandboxDetailSection(title: "Logs") {
+                if let logPaths = detail?.logPaths {
+                    PathBlock(title: "Event Log", path: logPaths.eventLogPath)
+                    PathBlock(title: "Boot Log", path: logPaths.bootLogPath)
+                    PathBlock(title: "Guest Agent STDOUT", path: logPaths.guestAgentLogPath)
+                    PathBlock(title: "Guest Agent STDERR", path: logPaths.guestAgentStderrLogPath)
+                } else {
+                    Text("No sandbox log paths were returned.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button(role: .destructive) {
+                    showingRemoveConfirmation = true
+                } label: {
+                    Label("Remove Sandbox", systemImage: "trash")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(AppTheme.danger)
+                .disabled(appState.isMutating)
+            }
+        }
+        .padding(18)
+        .background(AppTheme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .alert("Remove Sandbox?", isPresented: $showingRemoveConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove Sandbox", role: .destructive) {
+                appState.removeSandbox(sandbox.id)
+            }
+        } message: {
+            Text("This will remove \"\(sandbox.name)\". This action cannot be undone.")
+        }
+    }
+}
+
+struct SandboxDetailSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
+            Text(title)
+                .font(AppTheme.sectionTitleFont)
+            content
+        }
+    }
+}
+
+struct WorkloadDetailView: View {
+    @EnvironmentObject private var appState: AppState
+
+    let sandbox: SandboxRecord
+    let workload: WorkloadRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Workload")
+                            .font(AppTheme.titleFont)
+                        Text(sandbox.name)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    StatusBadge(text: workload.status.label, color: workload.status.color)
+                }
+
                 Text(workload.command)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(3)
+                    .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
-                Spacer()
-                StatusBadge(text: workload.status.label, color: workload.status.color)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    if workload.status == .running {
+                        Button("Stop Workload") {
+                            appState.stopWorkload(sandboxID: sandbox.id, workloadID: workload.id)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(appState.isMutating)
+                    } else {
+                        Button("Remove Workload", role: .destructive) {
+                            appState.removeWorkload(sandboxID: sandbox.id, workloadID: workload.id)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(appState.isMutating)
+                    }
+                }
+            }
+            .padding(18)
+            .background(AppTheme.panel)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            InfoCard(title: "Basic Info") {
+                PropertyRow(label: "Workload ID", value: workload.id)
+                PropertyRow(label: "Working Dir", value: workload.workingDirectory)
+                PropertyRow(label: "Image-backed", value: workload.isImageBacked ? "Yes" : "No")
+                PropertyRow(label: "Started", value: workload.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+                PropertyRow(label: "Exited", value: workload.exitedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+                PropertyRow(label: "Exit Code", value: workload.exitCode.map(String.init) ?? "—")
             }
 
-            PropertyRow(label: "Working Dir", value: workload.workingDirectory)
-            PropertyRow(label: "Image-backed", value: workload.isImageBacked ? "Yes" : "No")
-            PropertyRow(label: "Started", value: workload.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
-            PropertyRow(label: "Exited", value: workload.exitedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
-            PropertyRow(label: "Exit Code", value: workload.exitCode.map(String.init) ?? "—")
-            LiveLogBlock(title: "STDOUT", path: workload.stdoutLogPath, isFollowing: workload.status == .running)
-            LiveLogBlock(title: "STDERR", path: workload.stderrLogPath, isFollowing: workload.status == .running)
-
-            HStack(spacing: 12) {
-                if workload.status == .running {
-                    Button("Stop Workload") {
-                        appState.stopWorkload(sandboxID: sandboxID, workloadID: workload.id)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(appState.isMutating)
-                }
-
-                if workload.status != .running {
-                    Button("Remove Workload", role: .destructive) {
-                        appState.removeWorkload(sandboxID: sandboxID, workloadID: workload.id)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(appState.isMutating)
-                }
+            InfoCard(title: "Logs") {
+                LiveLogBlock(title: "STDOUT", path: workload.stdoutLogPath, isFollowing: workload.status == .running)
+                LiveLogBlock(title: "STDERR", path: workload.stderrLogPath, isFollowing: workload.status == .running)
             }
         }
-        .padding(14)
-        .background(AppTheme.background.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -944,14 +1172,30 @@ struct PropertyRow: View {
     let label: String
     let value: String
 
+    private var usesStackedLayout: Bool {
+        value.count > 36 || value.contains("/") || value.contains("@") || value.contains(":")
+    }
+
     var body: some View {
-        HStack(alignment: .top) {
-            Text(label)
-                .foregroundColor(.secondary)
-            Spacer(minLength: 16)
-            Text(value)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
+        Group {
+            if usesStackedLayout {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label)
+                        .foregroundColor(.secondary)
+                    Text(value)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack(alignment: .top) {
+                    Text(label)
+                        .foregroundColor(.secondary)
+                    Spacer(minLength: 16)
+                    Text(value)
+                        .multilineTextAlignment(.trailing)
+                        .textSelection(.enabled)
+                }
+            }
         }
         .font(.caption)
     }
@@ -1368,5 +1612,13 @@ extension OCIImageRecord {
 extension String {
     func ifEmpty(_ fallback: String) -> String {
         isEmpty ? fallback : self
+    }
+}
+
+extension Date {
+    var compactRelativeDescription: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: self, relativeTo: Date())
     }
 }
