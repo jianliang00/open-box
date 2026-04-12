@@ -136,6 +136,11 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         terminalView.nativeForegroundColor = NSColor(calibratedWhite: 0.92, alpha: 1.0)
         terminalView.nativeBackgroundColor = NSColor(calibratedWhite: 0.035, alpha: 1.0)
         configureEmbeddedTerminalCapabilities(terminalView, allowsInlineGraphics: allowsInlineGraphics)
+        configureEmbeddedTerminalScrollers(in: terminalView)
+        let scrollback = max(terminalView.terminal.options.scrollback, 10_000)
+        if terminalView.terminal.options.scrollback != scrollback {
+            terminalView.terminal.changeHistorySize(scrollback)
+        }
         terminalView.caretViewTracksFocus = true
         terminalView.backspaceSendsControlH = false
         terminalView.allowMouseReporting = true
@@ -462,6 +467,7 @@ final class TerminalContainerView: NSView {
 
     private func prepareTerminalLayout(_ terminalView: TerminalView) {
         configureEmbeddedTerminalCapabilities(terminalView, allowsInlineGraphics: allowsInlineGraphics)
+        configureEmbeddedTerminalScrollers(in: terminalView)
         terminalView.setFrameOrigin(.zero)
         if terminalView.frame.size != bounds.size {
             terminalView.setFrameSize(bounds.size)
@@ -486,6 +492,19 @@ private func configureEmbeddedTerminalCapabilities(_ terminalView: TerminalView,
     terminalView.terminal.options.enableSixelReported = allowsInlineGraphics
     terminalView.layer?.isOpaque = true
     terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
+}
+
+private func configureEmbeddedTerminalScrollers(in view: NSView) {
+    for subview in view.subviews {
+        if let scroller = subview as? NSScroller {
+            scroller.knobStyle = .light
+            scroller.alphaValue = 1
+            scroller.wantsLayer = true
+            scroller.layer?.backgroundColor = NSColor(calibratedWhite: 0.11, alpha: 1).cgColor
+            scroller.layer?.cornerRadius = 3
+        }
+        configureEmbeddedTerminalScrollers(in: subview)
+    }
 }
 
 final class TerminalDiagnosticLogger {

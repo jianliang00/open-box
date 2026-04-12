@@ -13,7 +13,7 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingPullImage = false
+    @State private var showingAddImage = false
     @State private var showingCreateSandbox = false
     @State private var createSandboxReference: String?
     @State private var runWorkloadTarget: SandboxRecord?
@@ -28,7 +28,7 @@ struct ContentView: View {
                 SandboxListView(showCreateSandbox: $showingCreateSandbox)
             case .images:
                 ImageListView(
-                    showPullImage: $showingPullImage,
+                    showAddImage: $showingAddImage,
                     onCreateSandbox: { reference in
                         createSandboxReference = reference
                         showingCreateSandbox = true
@@ -49,8 +49,8 @@ struct ContentView: View {
         .task {
             await appState.refreshAllIfNeeded()
         }
-        .sheet(isPresented: $showingPullImage) {
-            PullImageSheet()
+        .sheet(isPresented: $showingAddImage) {
+            AddImageSheet()
                 .environmentObject(appState)
         }
         .sheet(isPresented: $showingCreateSandbox, onDismiss: {
@@ -123,32 +123,6 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 32, height: 32)
-                    .background(AppTheme.accent)
-                    .clipShape(Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("OpenBox")
-                        .font(AppTheme.sidebarTitleFont)
-                        .foregroundColor(AppTheme.onSurface)
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(AppTheme.selectionMark)
-                            .frame(width: 6, height: 6)
-                        Text("Container Services Connected")
-                            .font(AppTheme.metadataFont)
-                            .foregroundColor(AppTheme.outline)
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 24)
-            .padding(.bottom, 24)
-
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(SidebarSection.allCases) { section in
                     Button {
@@ -160,6 +134,7 @@ struct SidebarView: View {
                 }
             }
             .padding(.horizontal, 12)
+            .padding(.top, 24)
 
             Spacer(minLength: 0)
         }
@@ -491,7 +466,7 @@ struct SandboxTreeWorkloadRow: View {
 
 struct ImageListView: View {
     @EnvironmentObject private var appState: AppState
-    @Binding var showPullImage: Bool
+    @Binding var showAddImage: Bool
 
     let onCreateSandbox: (String) -> Void
 
@@ -509,13 +484,13 @@ struct ImageListView: View {
         VStack(spacing: 0) {
             ListColumnHeader(
                 title: "Images",
-                primaryTitle: "Pull",
-                primarySystemImage: "arrow.down",
+                primaryTitle: "Add",
+                primarySystemImage: "plus",
                 secondarySystemImage: "arrow.clockwise",
                 primaryDisabled: appState.isMutating,
                 secondaryDisabled: appState.isRefreshing || appState.isMutating,
                 primaryAction: {
-                    showPullImage = true
+                    showAddImage = true
                 },
                 secondaryAction: {
                     Task {
@@ -534,8 +509,8 @@ struct ImageListView: View {
                 Spacer()
             } else if filteredImages.isEmpty {
                 EmptyStateView(
-                    title: "No local images",
-                    message: "Pull an OCI image reference directly from a registry and it will appear here."
+                    title: "No images",
+                    message: "Add an OCI image reference to track it, or pull it so new sandboxes can use it."
                 )
             } else {
                 ScrollView {
@@ -549,10 +524,16 @@ struct ImageListView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button("Create Sandbox") {
-                                    onCreateSandbox(image.reference)
+                                if image.isDownloaded {
+                                    Button("Create Sandbox") {
+                                        onCreateSandbox(image.reference)
+                                    }
+                                } else {
+                                    Button("Pull Image") {
+                                        appState.pullImage(reference: image.reference)
+                                    }
                                 }
-                                Button("Delete Image", role: .destructive) {
+                                Button(image.isDownloaded ? "Delete Image" : "Remove Image", role: .destructive) {
                                     appState.deleteImage(reference: image.reference)
                                 }
                             }
@@ -587,19 +568,15 @@ struct SettingsSummaryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     SettingsCard(
-                        title: "Runtime Contract",
-                        detail: "Configuration policy"
-                    )
-                    SettingsCard(
-                        title: "Image Flow",
-                        detail: "Pipeline behavior"
-                    )
-                    SettingsCard(
-                        title: "Current Status",
+                        title: "Container Services",
                         detail: appState.systemStatus.isAvailable
                             ? "Connected to local node"
                             : (appState.systemStatus.lastError ?? "Container services unavailable"),
                         isSelected: true
+                    )
+                    SettingsCard(
+                        title: "Diagnostics",
+                        detail: "Terminal logging"
                     )
                 }
                 .padding(.horizontal, 10)
@@ -685,8 +662,15 @@ struct ImageRow: View {
                 }
 
                 HStack(spacing: 8) {
-                    StatusPill(text: image.shortDigest, color: AppTheme.secondary, fill: AppTheme.detailSurface)
-                    Text(image.mediaType)
+                    StatusPill(
+                        text: image.availability.label,
+                        color: image.isDownloaded ? AppTheme.accent : AppTheme.warning,
+                        fill: image.isDownloaded ? AppTheme.selectionSurface : AppTheme.warningSurface
+                    )
+                    if image.isDownloaded {
+                        StatusPill(text: image.shortDigest, color: AppTheme.secondary, fill: AppTheme.detailSurface)
+                    }
+                    Text(image.platformLabel.ifEmpty(image.mediaType))
                         .font(AppTheme.metadataFont)
                         .foregroundColor(AppTheme.outline)
                         .italic()
@@ -862,8 +846,8 @@ struct SandboxSummaryCard: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
-                    .tint(sandbox.status.isRunning ? AppTheme.surfaceContainer : AppTheme.accent)
-                    .foregroundColor(sandbox.status.isRunning ? AppTheme.onSurface : .white)
+                    .tint(sandbox.status.isRunning ? AppTheme.danger : AppTheme.accent)
+                    .foregroundColor(.white)
                     .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
                     .help(toggleSandboxTitle)
                 }
@@ -888,30 +872,9 @@ struct SandboxSummaryCard: View {
                         .foregroundColor(AppTheme.danger)
                         .textSelection(.enabled)
                 }
-                .frame(maxWidth: 660)
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Diagnostic Logs")
-                        .font(AppTheme.sectionTitleFont)
-                        .foregroundColor(AppTheme.outline)
-                        .textCase(.uppercase)
-                    Spacer()
-                    Text("Event Log")
-                        .font(AppTheme.metadataFont)
-                        .foregroundColor(AppTheme.accent)
-                    Text("Boot Log")
-                        .font(AppTheme.metadataFont)
-                        .foregroundColor(AppTheme.outline)
-                    Text("STDOUT")
-                        .font(AppTheme.metadataFont)
-                        .foregroundColor(AppTheme.outline)
-                }
-
-                DiagnosticLogPanel(logPaths: detail?.logPaths)
-            }
-            .frame(maxWidth: 660)
+            DiagnosticLogPathDisclosure(logPaths: detail?.logPaths)
 
             SectionBreak()
 
@@ -927,7 +890,6 @@ struct SandboxSummaryCard: View {
                 .tint(AppTheme.danger)
                 .disabled(appState.isMutating)
             }
-            .frame(maxWidth: 660)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(AppTheme.detailSurface)
@@ -946,11 +908,12 @@ struct SandboxSummaryCard: View {
             PropertyRow(label: "OCI Image", value: sandbox.imageReference)
             PropertyRow(label: "Digest", value: sandbox.imageDigest.shortDigest)
             PropertyRow(label: "Runtime", value: sandbox.runtimeHandler)
+            PropertyRow(label: "Platform", value: sandbox.platform)
             PropertyRow(label: "Resources", value: "\(sandbox.cpuCores) vCPU / \(sandbox.memoryGB)GB RAM")
             PropertyRow(label: "Workspace", value: sandbox.workspacePath ?? "Not mounted")
             PropertyRow(label: "Share Mode", value: sandbox.shareMode?.label ?? "-")
         }
-        .frame(width: 240)
+        .frame(minWidth: 260, maxWidth: .infinity)
     }
 
     private var networkSection: some View {
@@ -966,7 +929,7 @@ struct SandboxSummaryCard: View {
                     .foregroundColor(AppTheme.outline)
             }
         }
-        .frame(width: 240)
+        .frame(minWidth: 260, maxWidth: .infinity)
     }
 }
 
@@ -989,49 +952,36 @@ struct SandboxDetailSection<Content: View>: View {
     }
 }
 
-struct DiagnosticLogPanel: View {
+struct DiagnosticLogPathDisclosure: View {
     let logPaths: SandboxLogRecord?
 
-    private var lines: [String] {
-        guard let logPaths else {
-            return [
-                "[diagnostics] No sandbox log paths were returned.",
-                "[diagnostics] Start or refresh the sandbox to collect events."
-            ]
-        }
-
-        return [
-            "[event] \(logPaths.eventLogPath)",
-            "[boot] \(logPaths.bootLogPath)",
-            "[stdout] \(logPaths.guestAgentLogPath ?? "-")",
-            "[stderr] \(logPaths.guestAgentStderrLogPath ?? "-")"
-        ]
-    }
+    @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(lines.indices, id: \.self) { index in
-                Text(lines[index])
-                    .font(AppTheme.monoFont)
-                    .foregroundColor(index == 0 ? AppTheme.terminalAccent : AppTheme.terminalText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                if let logPaths {
+                    CopyablePathRow(label: "Event", path: logPaths.eventLogPath)
+                    CopyablePathRow(label: "Boot", path: logPaths.bootLogPath)
+                    CopyablePathRow(label: "Guest Agent STDOUT", path: logPaths.guestAgentLogPath)
+                    CopyablePathRow(label: "Guest Agent STDERR", path: logPaths.guestAgentStderrLogPath)
+                } else {
+                    Text("No sandbox log paths were returned.")
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.outline)
+                }
             }
-
-            Rectangle()
-                .fill(AppTheme.terminalText.opacity(0.12))
-                .frame(height: 1)
-                .padding(.top, 4)
-
-            Text("_")
-                .font(AppTheme.monoFont)
-                .foregroundColor(AppTheme.terminalMuted)
+            .padding(.top, 10)
+        } label: {
+            Text("Diagnostic Log Paths")
+                .font(AppTheme.sectionTitleFont)
+                .foregroundColor(AppTheme.onSurfaceVariant)
+                .textCase(.uppercase)
         }
         .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-        .background(AppTheme.terminalSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surfaceContainer)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -1071,13 +1021,14 @@ struct WorkloadStatusBar: View {
             StatusBadge(text: workload.status.label, color: workload.status.color)
 
             if workload.status == .running {
-                Button {
+                Button(role: .destructive) {
                     appState.stopWorkload(sandboxID: sandbox.id, workloadID: workload.id)
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
+                .tint(AppTheme.danger)
                 .disabled(appState.isMutating)
             } else {
                 Button(role: .destructive) {
@@ -1114,6 +1065,8 @@ struct WorkloadDetailView: View {
                     workload: workload,
                     terminalHeight: terminalHeight
                 )
+            } else {
+                WorkloadTerminalOutputBlock(workload: workload)
             }
 
             InfoCard(title: "Basic Info") {
@@ -1123,14 +1076,11 @@ struct WorkloadDetailView: View {
                 PropertyRow(label: "Started", value: workload.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
                 PropertyRow(label: "Exited", value: workload.exitedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
                 PropertyRow(label: "Exit Code", value: workload.exitCode.map(String.init) ?? "—")
-            }
-
-            InfoCard(title: "Logs") {
-                LiveLogBlock(title: "STDOUT", path: workload.stdoutLogPath, isFollowing: workload.status == .running)
-                LiveLogBlock(title: "STDERR", path: workload.stderrLogPath, isFollowing: workload.status == .running)
+                CopyablePathRow(label: "STDOUT Log", path: workload.stdoutLogPath)
+                CopyablePathRow(label: "STDERR Log", path: workload.stderrLogPath)
             }
         }
-        .frame(maxWidth: 720, alignment: .topLeading)
+        .frame(maxWidth: 980, alignment: .topLeading)
     }
 
     private var terminalHeight: CGFloat {
@@ -1158,19 +1108,34 @@ struct ImageDetailView: View {
                     Text(image.reference)
                         .font(AppTheme.titleFont)
                     HStack(spacing: 10) {
-                        StatusBadge(text: image.shortDigest, color: AppTheme.accent)
+                        StatusBadge(
+                            text: image.availability.label,
+                            color: image.isDownloaded ? AppTheme.accent : AppTheme.warning,
+                            fill: image.isDownloaded ? AppTheme.selectionSurface : AppTheme.warningSurface
+                        )
+                        if image.isDownloaded {
+                            StatusBadge(text: image.shortDigest, color: AppTheme.accent)
+                        }
                         Text(image.mediaType)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     HStack(spacing: 12) {
-                        Button("Create Sandbox") {
-                            onCreateSandbox()
+                        if image.isDownloaded {
+                            Button("Create Sandbox") {
+                                onCreateSandbox()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(appState.isMutating)
+                        } else {
+                            Button("Pull Image") {
+                                appState.pullImage(reference: image.reference)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(appState.isMutating)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(appState.isMutating)
 
-                        Button("Delete Image", role: .destructive) {
+                        Button(image.isDownloaded ? "Delete Image" : "Remove Image", role: .destructive) {
                             appState.deleteImage(reference: image.reference)
                         }
                         .buttonStyle(.bordered)
@@ -1183,12 +1148,13 @@ struct ImageDetailView: View {
 
                 InfoCard(title: "Reference") {
                     PropertyRow(label: "OCI Reference", value: image.reference)
-                    PropertyRow(label: "Digest", value: image.digest)
+                    PropertyRow(label: "Digest", value: image.digest.ifEmpty("—"))
                     PropertyRow(label: "Media Type", value: image.mediaType)
+                    PropertyRow(label: "Platforms", value: image.platformLabel.ifEmpty("—"))
                 }
 
                 InfoCard(title: "Usage") {
-                    Text("Use this image directly in a new sandbox. If you enter the same reference in the sandbox wizard, OpenBox will reuse the local image instead of rebuilding or preparing anything.")
+                    Text(image.isDownloaded ? "Use this downloaded image directly in a new sandbox." : "Pull this reference before creating a sandbox from it.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1235,19 +1201,6 @@ struct SettingsDetailView: View {
                         .foregroundColor(.secondary)
                         .textSelection(.enabled)
                 }
-
-                InfoCard(title: "Runtime Notes") {
-                    Text("OpenBox only embeds the client SDK surface. It does not install or bootstrap the container services. If connection fails, make sure the container runtime is already installed and running, for example via `container system start`.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                InfoCard(title: "Refactor Result") {
-                    Text("The old restore-image, IPSW, VNC, and VM bundle preparation path has been removed. New sandboxes are created straight from OCI images pulled through the container SDK.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
             .padding(28)
         }
@@ -1255,7 +1208,7 @@ struct SettingsDetailView: View {
     }
 }
 
-struct PullImageSheet: View {
+struct AddImageSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
@@ -1264,9 +1217,9 @@ struct PullImageSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ModalHeader(
-                title: "Pull OCI Image",
-                subtitle: "Fetch an OCI reference through the container SDK.",
-                systemImage: "arrow.down.circle"
+                title: "Add OCI Image",
+                subtitle: "Track a reference or download it locally.",
+                systemImage: "plus.circle"
             )
 
             VStack(alignment: .leading, spacing: 14) {
@@ -1281,7 +1234,7 @@ struct PullImageSheet: View {
 
                 InfoNote(
                     title: "Image Flow",
-                    message: "The image reference is sent directly to the container SDK. No local conversion or preparation step is used."
+                    message: "Add stores the reference locally. Pull downloads it through the container SDK so it can be used by new sandboxes."
                 )
             }
             .padding(24)
@@ -1298,7 +1251,16 @@ struct PullImageSheet: View {
                         appState.pullImage(reference: reference)
                     }
                 }
+                .disabled(draft.reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Add") {
+                    let reference = draft.reference
+                    dismiss()
+                    Task { @MainActor in
+                        appState.addImageReference(reference: reference)
+                    }
+                }
                 .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
                 .disabled(draft.reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -1330,7 +1292,15 @@ struct CreateSandboxSheet: View {
 
     private var canSubmit: Bool {
         !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !draft.imageReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        downloadedImageReferences.contains(draft.imageReference)
+    }
+
+    private var downloadedImages: [OCIImageRecord] {
+        appState.downloadedImages
+    }
+
+    private var downloadedImageReferences: [String] {
+        downloadedImages.map(\.reference)
     }
 
     var body: some View {
@@ -1353,13 +1323,22 @@ struct CreateSandboxSheet: View {
                             .innerFieldShadow()
 
                         FormLabel("Image Reference")
-                        TextField("OCI image reference", text: $draft.imageReference)
-                            .textFieldStyle(.plain)
-                            .font(AppTheme.monoFont)
-                            .padding(10)
-                            .background(AppTheme.fieldSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .innerFieldShadow()
+                        if downloadedImages.isEmpty {
+                            Text("No downloaded images are available. Pull an image before creating a sandbox.")
+                                .font(AppTheme.metadataFont)
+                                .foregroundColor(AppTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Picker("Image Reference", selection: $draft.imageReference) {
+                                ForEach(downloadedImages) { image in
+                                    Text(image.reference)
+                                        .tag(image.reference)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -1400,7 +1379,7 @@ struct CreateSandboxSheet: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
 
-                        Text("If the image is not local yet, OpenBox will pull it from the OCI registry before creating the sandbox.")
+                        Text("Only downloaded local images can be used to create a sandbox.")
                             .font(AppTheme.metadataFont)
                             .foregroundColor(AppTheme.outline)
                     }
@@ -1430,11 +1409,20 @@ struct CreateSandboxSheet: View {
         .frame(width: 620)
         .background(AppTheme.detailSurface)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onAppear(perform: reconcileSelectedImage)
+        .onChange(of: downloadedImageReferences) { _, _ in
+            reconcileSelectedImage()
+        }
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 draft.workspacePath = url.path
             }
         }
+    }
+
+    private func reconcileSelectedImage() {
+        guard !downloadedImageReferences.contains(draft.imageReference) else { return }
+        draft.imageReference = downloadedImageReferences.first ?? ""
     }
 }
 
@@ -1903,6 +1891,111 @@ struct PathBlock: View {
     }
 }
 
+struct CopyablePathRow: View {
+    let label: String
+    let path: String?
+
+    private var displayPath: String {
+        path?.ifEmpty("—") ?? "—"
+    }
+
+    private var canCopy: Bool {
+        path?.isEmpty == false
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(AppTheme.labelFont)
+                .foregroundColor(AppTheme.outline)
+                .textCase(.uppercase)
+
+            HStack(spacing: 8) {
+                Text(displayPath)
+                    .font(AppTheme.monoSmallFont)
+                    .foregroundColor(canCopy ? AppTheme.secondary : AppTheme.outline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    guard let path, !path.isEmpty else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(path, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(canCopy ? AppTheme.accent : AppTheme.outline)
+                .disabled(!canCopy)
+                .help("Copy path")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(AppTheme.fieldSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .innerFieldShadow()
+        }
+    }
+}
+
+struct WorkloadTerminalOutputBlock: View {
+    let workload: WorkloadRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("Terminal Output")
+                    .font(AppTheme.sectionTitleFont)
+                if workload.status == .running {
+                    Label("Live", systemImage: "record.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.accent)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+
+            VStack(spacing: 0) {
+                TerminalChromeBar(title: workload.command)
+                TerminalLogContentView(
+                    stdoutPath: workload.stdoutLogPath,
+                    stderrPath: workload.stderrLogPath,
+                    isFollowing: workload.status == .running,
+                    emptyText: "No command output has been captured yet."
+                )
+                .frame(minHeight: 160, maxHeight: 320)
+                .background(AppTheme.terminalSurface)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+struct TerminalChromeBar: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(Color(red: 255 / 255, green: 95 / 255, blue: 87 / 255)).frame(width: 8, height: 8)
+            Circle().fill(Color(red: 255 / 255, green: 189 / 255, blue: 46 / 255)).frame(width: 8, height: 8)
+            Circle().fill(Color(red: 39 / 255, green: 201 / 255, blue: 63 / 255)).frame(width: 8, height: 8)
+            Text(title)
+                .font(AppTheme.monoSmallFont)
+                .foregroundColor(AppTheme.terminalMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.leading, 8)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(AppTheme.terminalChrome)
+    }
+}
+
 struct InteractiveTerminalBlock: View {
     @EnvironmentObject private var appState: AppState
     @AppStorage("openBoxTerminalAllowsInlineGraphics") private var allowsInlineGraphics = false
@@ -1943,27 +2036,14 @@ struct InteractiveTerminalBlock: View {
             Text(footerText)
                 .font(.caption2)
                 .foregroundColor(AppTheme.outline)
+                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var terminalShell: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Circle().fill(Color(red: 255 / 255, green: 95 / 255, blue: 87 / 255)).frame(width: 8, height: 8)
-                Circle().fill(Color(red: 255 / 255, green: 189 / 255, blue: 46 / 255)).frame(width: 8, height: 8)
-                Circle().fill(Color(red: 39 / 255, green: 201 / 255, blue: 63 / 255)).frame(width: 8, height: 8)
-                Text(workload.command)
-                    .font(AppTheme.monoSmallFont)
-                    .foregroundColor(AppTheme.terminalMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .padding(.leading, 8)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(AppTheme.terminalChrome)
+            TerminalChromeBar(title: workload.command)
 
             if workload.status == .running, let terminalIO {
                 EmbeddedTerminalView(
@@ -1986,11 +2066,14 @@ struct InteractiveTerminalBlock: View {
                 .frame(height: terminalHeight)
                 .background(AppTheme.terminalSurface)
             } else {
-                Text(statusText)
-                    .font(AppTheme.monoFont)
-                    .foregroundColor(AppTheme.terminalMuted)
-                    .frame(maxWidth: .infinity, minHeight: 128, alignment: .center)
-                    .background(AppTheme.terminalSurface)
+                TerminalLogContentView(
+                    stdoutPath: workload.stdoutLogPath,
+                    stderrPath: workload.stderrLogPath,
+                    isFollowing: workload.status == .running,
+                    emptyText: statusText
+                )
+                .frame(minHeight: 128, maxHeight: 260)
+                .background(AppTheme.terminalSurface)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -2019,6 +2102,124 @@ struct InteractiveTerminalBlock: View {
             return "\(baseText) Diagnostics: \(diagnosticsContext.logURL.path)"
         }
         return baseText
+    }
+}
+
+struct TerminalLogContentView: View {
+    private static let bottomID = "terminal-log-bottom"
+
+    let stdoutPath: String?
+    let stderrPath: String?
+    let isFollowing: Bool
+    let emptyText: String
+
+    @State private var output = TerminalLogOutput(text: "Waiting for log output...", isTruncated: false, isError: false)
+
+    private var taskID: String {
+        "\(stdoutPath ?? "")|\(stderrPath ?? "")|\(isFollowing)|\(emptyText)"
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if output.isTruncated {
+                        Text("Showing the last \(LogFileSnapshot.byteLimitLabel).")
+                            .font(.caption2)
+                            .foregroundColor(AppTheme.terminalMuted)
+                    }
+
+                    Text(output.text)
+                        .font(AppTheme.monoFont)
+                        .foregroundColor(output.isError ? AppTheme.danger : AppTheme.terminalText)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .id(Self.bottomID)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.visible)
+            .onChange(of: output.text) { _, _ in
+                guard isFollowing else { return }
+                proxy.scrollTo(Self.bottomID, anchor: .bottom)
+            }
+        }
+        .task(id: taskID) {
+            await streamLogs()
+        }
+    }
+
+    @MainActor
+    private func streamLogs() async {
+        while !Task.isCancelled {
+            let nextOutput = await TerminalLogOutput.load(
+                stdoutPath: stdoutPath,
+                stderrPath: stderrPath,
+                emptyText: emptyText
+            )
+            guard !Task.isCancelled else { return }
+            output = nextOutput
+
+            guard isFollowing else { return }
+            try? await Task.sleep(nanoseconds: 700_000_000)
+        }
+    }
+}
+
+struct TerminalLogOutput: Equatable, Sendable {
+    var text: String
+    var isTruncated: Bool
+    var isError: Bool
+
+    static func load(stdoutPath: String?, stderrPath: String?, emptyText: String) async -> TerminalLogOutput {
+        let stdout = await snapshot(for: stdoutPath)
+        let stderr = await snapshot(for: stderrPath)
+
+        var chunks: [String] = []
+        if stdout.kind == .content {
+            chunks.append(stdout.text)
+        }
+        if stderr.kind == .content {
+            chunks.append(stderr.text)
+        }
+
+        if !chunks.isEmpty {
+            return TerminalLogOutput(
+                text: chunks.joined(separator: "\n"),
+                isTruncated: stdout.isTruncated || stderr.isTruncated,
+                isError: false
+            )
+        }
+
+        let errors = [stdout, stderr]
+            .filter { $0.kind == .error }
+            .map(\.text)
+        if !errors.isEmpty {
+            return TerminalLogOutput(
+                text: errors.joined(separator: "\n"),
+                isTruncated: false,
+                isError: true
+            )
+        }
+
+        if stdout.kind == .waiting || stderr.kind == .waiting {
+            return TerminalLogOutput(text: "Waiting for log output...", isTruncated: false, isError: false)
+        }
+
+        if stdout.kind == .empty || stderr.kind == .empty {
+            return TerminalLogOutput(text: "No output yet.", isTruncated: false, isError: false)
+        }
+
+        return TerminalLogOutput(text: emptyText, isTruncated: false, isError: false)
+    }
+
+    private static func snapshot(for path: String?) async -> LogFileSnapshot {
+        guard let path, !path.isEmpty else { return .missingPath }
+        return await LogFileSnapshot.load(path: path)
     }
 }
 
@@ -2444,9 +2645,24 @@ extension BannerStyle {
     }
 }
 
+extension OCIImageAvailability {
+    var label: String {
+        switch self {
+        case .downloaded:
+            return "Downloaded"
+        case .added:
+            return "Added"
+        }
+    }
+}
+
 extension OCIImageRecord {
     var shortDigest: String {
-        digest.count > 18 ? String(digest.prefix(18)) + "…" : digest
+        digest.isEmpty ? "—" : (digest.count > 18 ? String(digest.prefix(18)) + "…" : digest)
+    }
+
+    var platformLabel: String {
+        platforms.joined(separator: ", ")
     }
 }
 

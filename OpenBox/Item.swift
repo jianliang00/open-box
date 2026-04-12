@@ -88,12 +88,37 @@ enum WorkloadStatus: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+enum OCIImageAvailability: String, Codable, Hashable {
+    case downloaded
+    case added
+}
+
 struct OCIImageRecord: Identifiable, Hashable {
     let reference: String
     let digest: String
     let mediaType: String
+    let availability: OCIImageAvailability
+    let platforms: [String]
+
+    init(
+        reference: String,
+        digest: String,
+        mediaType: String,
+        availability: OCIImageAvailability = .downloaded,
+        platforms: [String] = []
+    ) {
+        self.reference = reference
+        self.digest = digest
+        self.mediaType = mediaType
+        self.availability = availability
+        self.platforms = platforms
+    }
 
     var id: String { reference }
+
+    var isDownloaded: Bool {
+        availability == .downloaded
+    }
 }
 
 struct SandboxRecord: Identifiable, Hashable {
@@ -252,6 +277,7 @@ final class AppState: ObservableObject {
 
     private let service: ContainerSDKService
     private var hasLoadedOnce = false
+    private var transientWorkloads: [String: [WorkloadRecord]] = [:]
 
     init(service: ContainerSDKService = ContainerSDKService()) {
         self.service = service
@@ -265,6 +291,10 @@ final class AppState: ObservableObject {
     var selectedImage: OCIImageRecord? {
         guard let selectedImageReference else { return nil }
         return images.first { $0.reference == selectedImageReference }
+    }
+
+    var downloadedImages: [OCIImageRecord] {
+        images.filter(\.isDownloaded)
     }
 
     var selectedSandboxDetail: SandboxDetail? {
@@ -322,6 +352,7 @@ final class AppState: ObservableObject {
             let inventory = try await service.loadSandboxes()
             sandboxes = inventory.sandboxes
             sandboxDetails = inventory.details
+            mergeTransientWorkloads()
         } catch {
             sandboxes = []
             sandboxDetails = [:]
@@ -343,6 +374,7 @@ final class AppState: ObservableObject {
                 sandboxes.append(sandbox.record)
             }
             sandboxDetails[sandbox.record.id] = sandbox.detail
+            mergeTransientWorkloads()
             reconcileSelections()
             reconcileInteractiveTerminalIO()
         } catch {
@@ -369,9 +401,32 @@ final class AppState: ObservableObject {
         }
     }
 
+    func addImageReference(reference: String) {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            banner = AppBanner(
+                title: "Missing image reference",
+                message: "Enter an OCI image reference like ghcr.io/org/image:tag.",
+                style: .error
+            )
+            return
+        }
+
+        runMutation(activity: "Adding \(trimmed)") { [service] in
+            try await service.addImageReference(reference: trimmed)
+            await self.refreshAll()
+            self.selectedSidebar = .images
+            self.selectedImageReference = trimmed
+        }
+    }
+
     func deleteImage(reference: String) {
-        runMutation(activity: "Deleting \(reference)") { [service] in
-            try await service.deleteImage(reference: reference)
+        let image = images.first { $0.reference == reference }
+        let deleteDownloadedImage = image?.isDownloaded == true
+        let activity = deleteDownloadedImage ? "Deleting \(reference)" : "Removing \(reference)"
+
+        runMutation(activity: activity) { [service] in
+            try await service.deleteImage(reference: reference, deleteDownloadedImage: deleteDownloadedImage)
             if self.selectedImageReference == reference {
                 self.selectedImageReference = nil
             }
@@ -393,7 +448,15 @@ final class AppState: ObservableObject {
         guard !trimmedReference.isEmpty else {
             banner = AppBanner(
                 title: "Missing OCI image reference",
-                message: "The sandbox must be created from a pulled or pullable OCI image.",
+                message: "Choose a downloaded OCI image before creating the sandbox.",
+                style: .error
+            )
+            return
+        }
+        guard images.contains(where: { $0.reference == trimmedReference && $0.isDownloaded }) else {
+            banner = AppBanner(
+                title: "Image is not downloaded",
+                message: "New sandboxes can only be created from images that are already downloaded locally.",
                 style: .error
             )
             return
@@ -443,6 +506,7 @@ final class AppState: ObservableObject {
                 self.selectedSandboxID = nil
                 self.selectedWorkloadID = nil
             }
+            self.transientWorkloads[sandboxID] = nil
             await self.refreshAll()
         }
     }
@@ -486,6 +550,10 @@ final class AppState: ObservableObject {
                 self.interactiveTerminalIO[self.interactiveTerminalKey(sandboxID: draft.sandboxID, workloadID: launch.workloadID)] = terminalIO
             }
             await self.refreshAll()
+            if let workload = launch.workload {
+                self.addTransientWorkload(workload, sandboxID: draft.sandboxID)
+                self.mergeTransientWorkloads()
+            }
             self.selectedSidebar = .sandboxes
             self.selectedSandboxID = draft.sandboxID
             self.selectedWorkloadID = self.sandboxDetails[draft.sandboxID]?.workloads.contains {
@@ -503,6 +571,13 @@ final class AppState: ObservableObject {
     }
 
     func removeWorkload(sandboxID: String, workloadID: String) {
+        if removeTransientWorkload(sandboxID: sandboxID, workloadID: workloadID) {
+            if selectedSandboxID == sandboxID, selectedWorkloadID == workloadID {
+                selectedWorkloadID = nil
+            }
+            return
+        }
+
         runMutation(activity: "Removing workload \(workloadID)") { [service] in
             try await service.removeWorkload(sandboxID: sandboxID, workloadID: workloadID)
             self.closeInteractiveTerminalIO(sandboxID: sandboxID, workloadID: workloadID)
@@ -567,6 +642,58 @@ final class AppState: ObservableObject {
         var sandbox = sandboxes[index]
         mutate(&sandbox)
         sandboxes[index] = sandbox
+    }
+
+    private func addTransientWorkload(_ workload: WorkloadRecord, sandboxID: String) {
+        var workloads = transientWorkloads[sandboxID] ?? []
+        workloads.removeAll { $0.id == workload.id }
+        workloads.insert(workload, at: 0)
+        transientWorkloads[sandboxID] = Array(workloads.prefix(20))
+    }
+
+    private func removeTransientWorkload(sandboxID: String, workloadID: String) -> Bool {
+        guard var workloads = transientWorkloads[sandboxID],
+              workloads.contains(where: { $0.id == workloadID }) else {
+            return false
+        }
+
+        workloads.removeAll { $0.id == workloadID }
+        transientWorkloads[sandboxID] = workloads.isEmpty ? nil : workloads
+        if var detail = sandboxDetails[sandboxID] {
+            detail.workloads.removeAll { $0.id == workloadID }
+            sandboxDetails[sandboxID] = detail
+            if let index = sandboxes.firstIndex(where: { $0.id == sandboxID }) {
+                sandboxes[index].workloadCount = detail.workloads.count
+            }
+        }
+        return true
+    }
+
+    private func mergeTransientWorkloads() {
+        let knownSandboxIDs = Set(sandboxes.map(\.id))
+        transientWorkloads = transientWorkloads.filter { knownSandboxIDs.contains($0.key) }
+
+        for (sandboxID, transientRecords) in transientWorkloads {
+            var detail = sandboxDetails[sandboxID] ?? SandboxDetail(
+                sandboxID: sandboxID,
+                networks: [],
+                workloads: [],
+                logPaths: nil,
+                lastError: nil
+            )
+            let persistentIDs = Set(detail.workloads.map(\.id))
+            let missingTransientRecords = transientRecords.filter { !persistentIDs.contains($0.id) }
+            guard !missingTransientRecords.isEmpty else { continue }
+
+            detail.workloads = (missingTransientRecords + detail.workloads).sorted {
+                $0.startedAt ?? .distantPast > $1.startedAt ?? .distantPast
+            }
+            sandboxDetails[sandboxID] = detail
+
+            if let index = sandboxes.firstIndex(where: { $0.id == sandboxID }) {
+                sandboxes[index].workloadCount = detail.workloads.count
+            }
+        }
     }
 
     private func reconcileSelections() {

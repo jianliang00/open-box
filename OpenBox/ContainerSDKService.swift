@@ -55,6 +55,7 @@ enum InteractiveWorkloadInputError: LocalizedError {
 struct WorkloadLaunch {
     let workloadID: String
     let terminalIO: InteractiveWorkloadIO?
+    let workload: WorkloadRecord?
 }
 
 final class InteractiveWorkloadIO: @unchecked Sendable {
@@ -218,6 +219,8 @@ actor ContainerSDKService {
     private static let terminalLocale = "en_US.UTF-8"
     private static let defaultPathEnvironment = "PATH=\(defaultPathEntries.joined(separator: ":"))"
 
+    private let imageCatalog = ImageCatalogStore()
+
     static func makeInteractiveTerminalEnvironment(baseEnvironment: [String], shellPath: String) -> [String] {
         var order: [String] = []
         var values: [String: String] = [:]
@@ -304,17 +307,28 @@ actor ContainerSDKService {
     func loadImages() async throws -> [OCIImageRecord] {
         let kit = Self.makeKit()
         let images = try await kit.listImages()
-        return images
-            .map {
+        var records: [OCIImageRecord] = []
+        records.reserveCapacity(images.count)
+
+        for image in images {
+            records.append(await Self.makeImageRecord(from: image, availability: .downloaded))
+        }
+
+        let downloadedReferences = Set(records.map(\.reference))
+        for storedImage in try imageCatalog.load() where !downloadedReferences.contains(storedImage.reference) {
+            records.append(
                 OCIImageRecord(
-                    reference: $0.reference,
-                    digest: $0.digest,
-                    mediaType: $0.description.mediaType
+                    reference: storedImage.reference,
+                    digest: "",
+                    mediaType: "Not downloaded",
+                    availability: .added
                 )
-            }
-            .sorted { lhs, rhs in
-                lhs.reference.localizedCaseInsensitiveCompare(rhs.reference) == .orderedAscending
-            }
+            )
+        }
+
+        return records.sorted { lhs, rhs in
+            lhs.reference.localizedCaseInsensitiveCompare(rhs.reference) == .orderedAscending
+        }
     }
 
     func loadSandboxes() async throws -> SandboxInventory {
@@ -355,21 +369,29 @@ actor ContainerSDKService {
 
         let kit = Self.makeKit()
         let image = try await kit.pullImage(reference: trimmed)
-        return OCIImageRecord(
-            reference: image.reference,
-            digest: image.digest,
-            mediaType: image.description.mediaType
-        )
+        return await Self.makeImageRecord(from: image, availability: .downloaded)
     }
 
-    func deleteImage(reference: String) async throws {
-        let kit = Self.makeKit()
-        try await kit.deleteImage(reference: reference, garbageCollect: true)
+    func addImageReference(reference: String) async throws {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ContainerSDKServiceError.emptyReference
+        }
+
+        try imageCatalog.add(reference: trimmed)
+    }
+
+    func deleteImage(reference: String, deleteDownloadedImage: Bool) async throws {
+        if deleteDownloadedImage {
+            let kit = Self.makeKit()
+            try await kit.deleteImage(reference: reference, garbageCollect: true)
+        }
+        try imageCatalog.remove(reference: reference)
     }
 
     func createSandbox(from draft: SandboxDraft) async throws -> String {
         let kit = Self.makeKit()
-        let image = try await ensureImage(reference: draft.imageReference, kit: kit)
+        let image = try await kit.getImage(reference: draft.imageReference)
         let sandboxID = Self.makeSandboxID(name: draft.name)
         let client = Self.makeClient()
         _ = try await Self.createContainer(id: sandboxID, image: image, draft: draft, client: client)
@@ -453,7 +475,8 @@ actor ContainerSDKService {
                         terminalIO: InteractiveWorkloadIO(
                             stdinHandle: stdinPipe.fileHandleForWriting,
                             outputHandle: outputPipe.fileHandleForReading
-                        )
+                        ),
+                        workload: nil
                     )
                 } catch {
                     try? stdinPipe.fileHandleForReading.close()
@@ -470,17 +493,40 @@ actor ContainerSDKService {
             guard draft.mode == .command else {
                 throw ContainerSDKServiceError.interactiveShellRequiresMacOSGuest
             }
+            let startedAt = Date()
             let result = try await kit.execSync(id: draft.sandboxID, configuration: process)
-            guard result.exitCode == 0 else {
-                let stderr = Self.decode(result.stderr)
-                let stdout = Self.decode(result.stdout)
-                throw ContainerSDKServiceError.commandFailed(
-                    code: result.exitCode,
-                    output: stderr.isEmpty ? stdout : stderr
+            let exitedAt = Date()
+            let stdoutLogPath = try Self.writeTransientWorkloadLog(
+                sandboxID: draft.sandboxID,
+                workloadID: workloadID,
+                stream: "stdout",
+                data: result.stdout
+            )
+            let stderrLogPath = try Self.writeTransientWorkloadLog(
+                sandboxID: draft.sandboxID,
+                workloadID: workloadID,
+                stream: "stderr",
+                data: result.stderr
+            )
+            return WorkloadLaunch(
+                workloadID: workloadID,
+                terminalIO: nil,
+                workload: WorkloadRecord(
+                    id: workloadID,
+                    command: Self.describe(process: process),
+                    workingDirectory: draft.workingDirectory,
+                    status: .stopped,
+                    exitCode: result.exitCode,
+                    stdoutLogPath: stdoutLogPath,
+                    stderrLogPath: stderrLogPath,
+                    startedAt: startedAt,
+                    exitedAt: exitedAt,
+                    isImageBacked: false,
+                    isTerminal: false
                 )
-            }
+            )
         }
-        return WorkloadLaunch(workloadID: workloadID, terminalIO: nil)
+        return WorkloadLaunch(workloadID: workloadID, terminalIO: nil, workload: nil)
     }
 
     func resizeTerminal(sandboxID: String, workloadID: String, columns: Int, rows: Int) async throws {
@@ -582,17 +628,26 @@ actor ContainerSDKService {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    private func ensureImage(reference: String, kit: ContainerKit) async throws -> Image {
-        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw ContainerSDKServiceError.emptyReference
-        }
+    private static func writeTransientWorkloadLog(
+        sandboxID: String,
+        workloadID: String,
+        stream: String,
+        data: Data
+    ) throws -> String {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openbox-workload-logs", isDirectory: true)
+            .appendingPathComponent(safeFileComponent(sandboxID), isDirectory: true)
+            .appendingPathComponent(safeFileComponent(workloadID), isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        do {
-            return try await kit.getImage(reference: trimmed)
-        } catch {
-            return try await kit.pullImage(reference: trimmed)
-        }
+        let url = directory.appendingPathComponent("\(safeFileComponent(stream)).log")
+        try data.write(to: url, options: .atomic)
+        return url.path
+    }
+
+    private static func safeFileComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        return String(value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
     }
 
     private func loadSandboxDetail(id: String) async -> SandboxDetail {
@@ -831,5 +886,82 @@ actor ContainerSDKService {
 
     private static func describe(process: ProcessConfiguration) -> String {
         ([process.executable] + process.arguments).joined(separator: " ")
+    }
+
+    private static func makeImageRecord(from image: Image, availability: OCIImageAvailability) async -> OCIImageRecord {
+        OCIImageRecord(
+            reference: image.reference,
+            digest: image.digest,
+            mediaType: image.description.mediaType,
+            availability: availability,
+            platforms: await imagePlatforms(for: image)
+        )
+    }
+
+    private static func imagePlatforms(for image: Image) async -> [String] {
+        guard let index = try? await image.index() else { return [] }
+        let platforms = index.manifests
+            .compactMap(\.platform)
+            .map(\.description)
+        return Array(Set(platforms)).sorted()
+    }
+}
+
+private struct StoredImageCatalog: Codable {
+    var images: [StoredImageReference] = []
+}
+
+private struct StoredImageReference: Codable, Hashable {
+    var reference: String
+    var addedAt: Date
+}
+
+private final class ImageCatalogStore {
+    private let fileManager: FileManager
+    private let url: URL
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("OpenBox", isDirectory: true)
+            ?? fileManager.temporaryDirectory.appendingPathComponent("OpenBox", isDirectory: true)
+        self.url = baseURL.appendingPathComponent("image-catalog.json")
+    }
+
+    func load() throws -> [StoredImageReference] {
+        guard fileManager.fileExists(atPath: url.path) else { return [] }
+        let data = try Data(contentsOf: url)
+        let catalog = try JSONDecoder().decode(StoredImageCatalog.self, from: data)
+        return catalog.images
+    }
+
+    func add(reference: String) throws {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ContainerSDKServiceError.emptyReference
+        }
+
+        var images = try load()
+        guard !images.contains(where: { $0.reference == trimmed }) else { return }
+        images.append(StoredImageReference(reference: trimmed, addedAt: Date()))
+        try save(images)
+    }
+
+    func remove(reference: String) throws {
+        let images = try load().filter { $0.reference != reference }
+        try save(images)
+    }
+
+    private func save(_ images: [StoredImageReference]) throws {
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var catalog = StoredImageCatalog()
+        catalog.images = images.sorted {
+            $0.reference.localizedCaseInsensitiveCompare($1.reference) == .orderedAscending
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(catalog)
+        try data.write(to: url, options: .atomic)
     }
 }

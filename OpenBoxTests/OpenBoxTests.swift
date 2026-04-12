@@ -249,6 +249,17 @@ struct OpenBoxTests {
         #expect(result.bytes == output)
     }
 
+    @Test func terminalStartupFrameNormalizerDoesNotClearAfterInterrupt() {
+        let normalizer = TerminalStartupFrameNormalizer()
+        normalizer.observeInput([0x03])
+
+        let frame = Array("\u{1B}[?2026h\u{1B}[1;55H\u{1B}[0m\u{1B}[49m\u{1B}[KInterrupted\u{1B}[?2026l".utf8)
+        let result = normalizer.normalize(frame)
+
+        #expect(result.action == .unchanged)
+        #expect(result.bytes == frame)
+    }
+
     @Test func terminalStartupFrameNormalizerBuffersSplitSynchronizedPrefix() {
         let normalizer = TerminalStartupFrameNormalizer()
         normalizer.observeInput(Array("\r".utf8))
