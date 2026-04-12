@@ -105,6 +105,7 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
     private func configure(window: NSWindow?) {
         guard let window else { return }
         window.appearance = NSAppearance(named: .aqua)
+        window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unifiedCompact
@@ -131,7 +132,7 @@ struct SidebarView: View {
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Precision Architect")
+                    Text("OpenBox")
                         .font(AppTheme.sidebarTitleFont)
                         .foregroundColor(AppTheme.onSurface)
                     HStack(spacing: 5) {
@@ -278,14 +279,14 @@ struct SandboxListView: View {
                                     Text("No workloads")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
-                                        .padding(.leading, 44)
+                                        .padding(.leading, 30)
                                         .padding(.vertical, 6)
                                 } else {
                                     Text("Workloads")
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundColor(AppTheme.outline)
                                         .textCase(.uppercase)
-                                        .padding(.leading, 14)
+                                        .padding(.leading, 22)
                                         .padding(.top, 2)
 
                                     ForEach(visibleWorkloads) { workload in
@@ -298,7 +299,7 @@ struct SandboxListView: View {
                                                 expandedSandboxIDs.insert(sandbox.id)
                                             }
                                         )
-                                        .padding(.leading, 32)
+                                        .padding(.leading, 16)
                                     }
                                 }
                             }
@@ -392,9 +393,16 @@ struct SandboxTreeSandboxRow: View {
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? AppTheme.detailSurface : Color.clear)
+                .fill(isSelected ? AppTheme.detailSurface : AppTheme.fieldSurface.opacity(0.86))
         )
-        .shadow(color: isSelected ? Color.black.opacity(0.04) : Color.clear, radius: 8, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(
+                    isSelected ? AppTheme.selectionSurface : AppTheme.surfaceContainerHigh.opacity(0.72),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: Color.black.opacity(isSelected ? 0.04 : 0.025), radius: isSelected ? 8 : 5, y: 2)
     }
 
     private var sandboxLabel: some View {
@@ -725,19 +733,33 @@ struct SandboxDetailView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if !appState.systemStatus.isAvailable {
-                        ServiceUnavailableView(message: appState.systemStatus.lastError)
-                    }
+            if let selectedWorkload {
+                VStack(spacing: 0) {
+                    WorkloadStatusBar(sandbox: sandbox, workload: selectedWorkload)
 
-                    if let selectedWorkload {
-                        WorkloadDetailView(
-                            sandbox: sandbox,
-                            workload: selectedWorkload,
-                            viewportHeight: proxy.size.height
-                        )
-                    } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if !appState.systemStatus.isAvailable {
+                                ServiceUnavailableView(message: appState.systemStatus.lastError)
+                            }
+
+                            WorkloadDetailView(
+                                sandbox: sandbox,
+                                workload: selectedWorkload,
+                                viewportHeight: proxy.size.height
+                            )
+                        }
+                        .padding(24)
+                    }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if !appState.systemStatus.isAvailable {
+                            ServiceUnavailableView(message: appState.systemStatus.lastError)
+                        }
+
                         SandboxSummaryCard(
                             sandbox: sandbox,
                             detail: detail,
@@ -746,10 +768,10 @@ struct SandboxDetailView: View {
                             }
                         )
                     }
+                    .padding(24)
                 }
-                .padding(24)
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppTheme.detailSurface)
@@ -1013,51 +1035,79 @@ struct DiagnosticLogPanel: View {
     }
 }
 
-struct WorkloadDetailView: View {
+struct WorkloadStatusBar: View {
     @EnvironmentObject private var appState: AppState
 
+    let sandbox: SandboxRecord
+    let workload: WorkloadRecord
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(workload.command)
+                    .font(AppTheme.titleSmallFont)
+                    .foregroundColor(AppTheme.onSurface)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+
+                HStack(spacing: 10) {
+                    Text(sandbox.name)
+                        .font(AppTheme.monoSmallFont)
+                        .foregroundColor(AppTheme.outline)
+                        .lineLimit(1)
+                    Text(workload.id)
+                        .font(AppTheme.monoSmallFont)
+                        .foregroundColor(AppTheme.outline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 12)
+
+            StatusBadge(text: workload.status.label, color: workload.status.color)
+
+            if workload.status == .running {
+                Button {
+                    appState.stopWorkload(sandboxID: sandbox.id, workloadID: workload.id)
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(appState.isMutating)
+            } else {
+                Button(role: .destructive) {
+                    appState.removeWorkload(sandboxID: sandbox.id, workloadID: workload.id)
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(appState.isMutating)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(AppTheme.detailSurface)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.surfaceContainerHigh)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct WorkloadDetailView: View {
     let sandbox: SandboxRecord
     let workload: WorkloadRecord
     let viewportHeight: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(workload.command)
-                            .font(AppTheme.titleFont)
-                            .lineLimit(2)
-                            .textSelection(.enabled)
-                        Text(sandbox.name)
-                            .font(AppTheme.monoSmallFont)
-                            .foregroundColor(AppTheme.outline)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    StatusBadge(text: workload.status.label, color: workload.status.color)
-                }
-
-                HStack(spacing: 12) {
-                    if workload.status == .running {
-                        Button("Stop Workload") {
-                            appState.stopWorkload(sandboxID: sandbox.id, workloadID: workload.id)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(appState.isMutating)
-                    } else {
-                        Button("Remove Workload", role: .destructive) {
-                            appState.removeWorkload(sandboxID: sandbox.id, workloadID: workload.id)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(appState.isMutating)
-                    }
-                }
-            }
-            .padding(18)
-            .background(AppTheme.detailSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
             if workload.isTerminal {
                 InteractiveTerminalBlock(
                     sandbox: sandbox,
