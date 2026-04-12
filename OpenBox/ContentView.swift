@@ -805,6 +805,14 @@ struct SandboxSummaryCard: View {
         return "Uptime \(minutes)m"
     }
 
+    private var desktopActionDisabled: Bool {
+        appState.isMutating ||
+        sandbox.status == .creating ||
+        sandbox.status == .pulling ||
+        sandbox.status == .starting ||
+        sandbox.status == .stopping
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 12) {
@@ -832,11 +840,23 @@ struct SandboxSummaryCard: View {
                         Label("Run Command", systemImage: "terminal")
                             .frame(minWidth: 108)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .controlSize(.regular)
                     .tint(AppTheme.accent)
                     .disabled(!sandbox.status.isRunning || appState.isMutating)
                     .help("Run Command")
+
+                    Button {
+                        appState.launchDesktop(for: sandbox.id)
+                    } label: {
+                        Label("Launch Desktop", systemImage: "desktopcomputer")
+                            .frame(minWidth: 124)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(AppTheme.accent)
+                    .disabled(desktopActionDisabled)
+                    .help("Launch Desktop")
 
                     Button {
                         appState.toggleSandbox(sandbox.id)
@@ -852,6 +872,14 @@ struct SandboxSummaryCard: View {
                     .help(toggleSandboxTitle)
                 }
             }
+
+            SandboxDesktopPanel(
+                sandbox: sandbox,
+                isActionDisabled: desktopActionDisabled,
+                onLaunchDesktop: {
+                    appState.launchDesktop(for: sandbox.id)
+                }
+            )
 
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 24) {
@@ -909,11 +937,17 @@ struct SandboxSummaryCard: View {
             PropertyRow(label: "Digest", value: sandbox.imageDigest.shortDigest)
             PropertyRow(label: "Runtime", value: sandbox.runtimeHandler)
             PropertyRow(label: "Platform", value: sandbox.platform)
+            PropertyRow(label: "Desktop GUI", value: desktopGUIValue)
             PropertyRow(label: "Resources", value: "\(sandbox.cpuCores) vCPU / \(sandbox.memoryGB)GB RAM")
             PropertyRow(label: "Workspace", value: sandbox.workspacePath ?? "Not mounted")
             PropertyRow(label: "Share Mode", value: sandbox.shareMode?.label ?? "-")
         }
         .frame(minWidth: 260, maxWidth: .infinity)
+    }
+
+    private var desktopGUIValue: String {
+        guard sandbox.isMacOSGuest else { return "Unsupported" }
+        return sandbox.desktopGUIEnabled ? "Enabled" : "Disabled"
     }
 
     private var networkSection: some View {
@@ -930,6 +964,141 @@ struct SandboxSummaryCard: View {
             }
         }
         .frame(minWidth: 260, maxWidth: .infinity)
+    }
+}
+
+struct SandboxDesktopPanel: View {
+    let sandbox: SandboxRecord
+    let isActionDisabled: Bool
+    let onLaunchDesktop: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppTheme.accent)
+                Text("Sandbox Desktop")
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundColor(AppTheme.onSurface)
+                StatusBadge(text: desktopStatusText, color: desktopStatusColor, fill: desktopStatusFill)
+                Spacer(minLength: 12)
+                Button {
+                    onLaunchDesktop()
+                } label: {
+                    Label("Launch Desktop", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isActionDisabled)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(AppTheme.sidebarSurface)
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    desktopGlyph
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(desktopTitle)
+                            .font(AppTheme.titleSmallFont)
+                            .foregroundColor(AppTheme.onSurface)
+                        Text(desktopMessage)
+                            .font(AppTheme.metadataFont)
+                            .foregroundColor(AppTheme.onSurfaceVariant)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 10) {
+                    PathCapsule(systemImage: "cube.box", text: sandbox.id)
+                    if sandbox.isMacOSGuest {
+                        PathCapsule(
+                            systemImage: "display",
+                            text: sandbox.desktopGUIEnabled ? "desktop window enabled" : "desktop disabled"
+                        )
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.detailSurface)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppTheme.surfaceContainerHigh.opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private var desktopGlyph: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.selectionSurface)
+                .frame(width: 42, height: 42)
+            Image(systemName: desktopGlyphName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(desktopStatusColor)
+        }
+    }
+
+    private var desktopGlyphName: String {
+        if !sandbox.isMacOSGuest || !sandbox.desktopGUIEnabled {
+            return "desktopcomputer.trianglebadge.exclamationmark"
+        }
+        if sandbox.status.isRunning {
+            return "desktopcomputer"
+        }
+        return "play.display"
+    }
+
+    private var desktopTitle: String {
+        guard sandbox.isMacOSGuest else {
+            return "Desktop GUI is not available for this sandbox"
+        }
+        guard sandbox.desktopGUIEnabled else {
+            return "Desktop GUI was not enabled at creation time"
+        }
+        if sandbox.status.isRunning {
+            return "Desktop window is managed by the runtime"
+        }
+        return "Launch opens a native VM desktop window"
+    }
+
+    private var desktopMessage: String {
+        guard sandbox.isMacOSGuest else {
+            return "The MVP supports native desktop windows for macOS guest sandboxes. Linux desktop sessions need a separate remote desktop backend."
+        }
+        guard sandbox.desktopGUIEnabled else {
+            return "Create a new macOS guest sandbox with Enable desktop GUI turned on to use the runtime-managed desktop window."
+        }
+        if sandbox.status.isRunning {
+            return "The sidecar opens the Virtualization desktop as a separate native window when the sandbox starts. If the window was closed, stop and start the sandbox to recreate it."
+        }
+        return "Starting this sandbox asks the container runtime to present the macOS guest in a separate native window."
+    }
+
+    private var desktopStatusText: String {
+        guard sandbox.isMacOSGuest else { return "Unsupported" }
+        guard sandbox.desktopGUIEnabled else { return "Disabled" }
+        return sandbox.status.isRunning ? "Ready" : "Available"
+    }
+
+    private var desktopStatusColor: Color {
+        guard sandbox.isMacOSGuest, sandbox.desktopGUIEnabled else {
+            return AppTheme.outline
+        }
+        return AppTheme.accent
+    }
+
+    private var desktopStatusFill: Color {
+        guard sandbox.isMacOSGuest, sandbox.desktopGUIEnabled else {
+            return AppTheme.stoppedSurface
+        }
+        return AppTheme.selectionSurface
     }
 }
 
@@ -1286,6 +1455,7 @@ struct CreateSandboxSheet: View {
             diskGB: 60,
             workspacePath: "",
             shareMode: .readWrite,
+            desktopGUIEnabled: false,
             autoStart: true
         ))
     }
@@ -1383,6 +1553,24 @@ struct CreateSandboxSheet: View {
                             .font(AppTheme.metadataFont)
                             .foregroundColor(AppTheme.outline)
                     }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Desktop")
+                            .font(AppTheme.sectionTitleFont)
+                            .foregroundColor(AppTheme.onSurfaceVariant)
+                            .textCase(.uppercase)
+
+                        Toggle("Enable desktop GUI for macOS guests", isOn: $draft.desktopGUIEnabled)
+                            .toggleStyle(.switch)
+
+                        Text("When the selected image resolves to a macOS guest, the runtime will attach keyboard, pointer, and graphics devices and open a native VM window when the sandbox starts.")
+                            .font(AppTheme.metadataFont)
+                            .foregroundColor(AppTheme.outline)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(16)
+                    .background(AppTheme.contentSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                     Toggle("Create and start immediately", isOn: $draft.autoStart)
                         .toggleStyle(.switch)

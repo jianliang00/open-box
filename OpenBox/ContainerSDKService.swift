@@ -764,7 +764,7 @@ actor ContainerSDKService {
         if configuration.runtimeHandler == Self.macOSRuntimeHandler {
             configuration.macosGuest = .init(
                 snapshotEnabled: false,
-                guiEnabled: false,
+                guiEnabled: draft.desktopGUIEnabled,
                 agentPort: 27_000,
                 networkBackend: .virtualizationNAT
             )
@@ -793,6 +793,7 @@ actor ContainerSDKService {
             imageDigest: snapshot.configuration.image.digest,
             runtimeHandler: snapshot.configuration.runtimeHandler,
             platform: snapshot.configuration.platform.description,
+            desktopGUIEnabled: snapshot.configuration.macosGuest?.guiEnabled == true,
             status: SandboxStatus(runtimeRawValue: snapshot.status.rawValue),
             cpuCores: snapshot.configuration.resources.cpus,
             memoryGB: memoryGB,

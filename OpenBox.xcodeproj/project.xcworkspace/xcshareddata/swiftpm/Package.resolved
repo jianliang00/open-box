@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jianliang00/container",
       "state" : {
-        "revision" : "c830402489060f5a2a3001366aa0ea866bbe29fb",
-        "version" : "0.0.3"
+        "revision" : "4e36e58036033fc6644ef6036096fabadbbff22f",
+        "version" : "0.0.4"
       }
     },
     {

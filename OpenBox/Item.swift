@@ -128,6 +128,7 @@ struct SandboxRecord: Identifiable, Hashable {
     var imageDigest: String
     var runtimeHandler: String
     var platform: String
+    var desktopGUIEnabled: Bool
     var status: SandboxStatus
     var cpuCores: Int
     var memoryGB: Int
@@ -216,6 +217,7 @@ struct SandboxDraft: Hashable {
     var diskGB: Int
     var workspacePath: String
     var shareMode: FileShareMode
+    var desktopGUIEnabled: Bool
     var autoStart: Bool
 }
 
@@ -495,6 +497,52 @@ final class AppState: ObservableObject {
             }
         case .pulling, .creating, .starting, .stopping:
             return
+        }
+    }
+
+    func launchDesktop(for sandboxID: String) {
+        guard let sandbox = sandboxes.first(where: { $0.id == sandboxID }) else { return }
+        guard sandbox.isMacOSGuest else {
+            banner = AppBanner(
+                title: "Desktop unavailable",
+                message: "Desktop GUI is supported only for macOS guest sandboxes in this MVP.",
+                style: .error
+            )
+            return
+        }
+        guard sandbox.desktopGUIEnabled else {
+            banner = AppBanner(
+                title: "Desktop GUI is not enabled",
+                message: "Create a new macOS guest sandbox with Enable desktop GUI turned on. Existing sandboxes cannot be switched to GUI mode safely.",
+                style: .error
+            )
+            return
+        }
+
+        switch sandbox.status {
+        case .running:
+            banner = AppBanner(
+                title: "Desktop is already running",
+                message: "The container runtime owns the native VM window. If it was closed, stop and start the sandbox to recreate it.",
+                style: .info
+            )
+        case .stopped, .unknown, .error:
+            mutateSandbox(id: sandboxID) { $0.status = .starting }
+            runMutation(activity: "Launching desktop \(sandbox.name)") { [service] in
+                try await service.startSandbox(id: sandboxID)
+                await self.refreshAll()
+                self.banner = AppBanner(
+                    title: "Desktop launched",
+                    message: "The runtime opened a native VM window for \(sandbox.name).",
+                    style: .info
+                )
+            }
+        case .pulling, .creating, .starting, .stopping:
+            banner = AppBanner(
+                title: "Desktop is busy",
+                message: "Wait until the sandbox finishes its current transition, then launch the desktop again.",
+                style: .info
+            )
         }
     }
 
