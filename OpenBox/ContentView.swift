@@ -21,7 +21,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selection: $appState.selectedSidebar)
-                .navigationSplitViewColumnWidth(min: 190, ideal: 220)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 260)
         } content: {
             switch appState.selectedSidebar {
             case .sandboxes:
@@ -78,40 +78,42 @@ struct ContentView: View {
                     .padding(20)
             }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    Task {
-                        await appState.refreshAll()
-                    }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .disabled(appState.isRefreshing || appState.isMutating)
-
-                switch appState.selectedSidebar {
-                case .sandboxes:
-                    Button {
-                        createSandboxReference = nil
-                        showingCreateSandbox = true
-                    } label: {
-                        Label("New Sandbox", systemImage: "plus.circle.fill")
-                    }
-                    .disabled(appState.isMutating)
-                case .images:
-                    Button {
-                        showingPullImage = true
-                    } label: {
-                        Label("Pull Image", systemImage: "arrow.down.circle.fill")
-                    }
-                    .disabled(appState.isMutating)
-                case .settings:
-                    EmptyView()
-                }
-            }
-        }
         .font(AppTheme.bodyFont)
-        .background(AppTheme.background.ignoresSafeArea())
+        .tint(AppTheme.accent)
+        .background(AppTheme.windowSurface.ignoresSafeArea())
+        .background(WindowChromeConfigurator())
+        .preferredColorScheme(.light)
+        .frame(minWidth: 1180, minHeight: 680)
+    }
+}
+
+private struct WindowChromeConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            configure(window: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(window: nsView.window)
+        }
+    }
+
+    private func configure(window: NSWindow?) {
+        guard let window else { return }
+        window.appearance = NSAppearance(named: .aqua)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unifiedCompact
+        window.backgroundColor = NSColor(
+            red: 245 / 255,
+            green: 245 / 255,
+            blue: 247 / 255,
+            alpha: 1
+        )
     }
 }
 
@@ -119,13 +121,88 @@ struct SidebarView: View {
     @Binding var selection: SidebarSection
 
     var body: some View {
-        List(SidebarSection.allCases, selection: $selection) { section in
-            Label(section.rawValue, systemImage: section.iconName)
-                .tag(section)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(AppTheme.accent)
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Precision Architect")
+                        .font(AppTheme.sidebarTitleFont)
+                        .foregroundColor(AppTheme.onSurface)
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(AppTheme.selectionMark)
+                            .frame(width: 6, height: 6)
+                        Text("Container Services Connected")
+                            .font(AppTheme.metadataFont)
+                            .foregroundColor(AppTheme.outline)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 24)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(SidebarSection.allCases) { section in
+                    Button {
+                        selection = section
+                    } label: {
+                        SidebarRow(section: section, isSelected: selection == section)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+
+            Spacer(minLength: 0)
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.background)
+        .background(AppTheme.sidebarSurface)
+    }
+}
+
+struct SidebarRow: View {
+    let section: SidebarSection
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            selectionMark
+
+            Image(systemName: section.iconName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.outline)
+                .frame(width: 18)
+
+            Text(section.rawValue)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.onSurfaceVariant)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? AppTheme.selectionSurface : Color.clear)
+        )
+    }
+
+    @ViewBuilder
+    private var selectionMark: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(AppTheme.selectionMark)
+                .frame(width: 3, height: 18)
+        } else {
+            Color.clear.frame(width: 3, height: 18)
+        }
     }
 }
 
@@ -146,23 +223,31 @@ struct SandboxListView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                SearchField(title: "Search sandboxes", text: $searchText)
-                    .frame(minWidth: 180)
-                Button {
+        VStack(spacing: 0) {
+            ListColumnHeader(
+                title: "Sandboxes",
+                primaryTitle: "New",
+                primarySystemImage: "plus",
+                secondarySystemImage: "arrow.clockwise",
+                primaryDisabled: appState.isMutating,
+                secondaryDisabled: appState.isRefreshing || appState.isMutating,
+                primaryAction: {
                     showCreateSandbox = true
-                } label: {
-                    Label("New Sandbox", systemImage: "plus.circle.fill")
+                },
+                secondaryAction: {
+                    Task {
+                        await appState.refreshAll()
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(appState.isMutating)
-            }
-            .padding(.horizontal)
+            )
+
+            SearchField(title: "Search sandboxes", text: $searchText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
 
             if !appState.systemStatus.isAvailable {
                 ServiceUnavailableView(message: appState.systemStatus.lastError)
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
                 Spacer()
             } else if filteredSandboxes.isEmpty {
                 EmptyStateView(
@@ -196,6 +281,13 @@ struct SandboxListView: View {
                                         .padding(.leading, 44)
                                         .padding(.vertical, 6)
                                 } else {
+                                    Text("Workloads")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(AppTheme.outline)
+                                        .textCase(.uppercase)
+                                        .padding(.leading, 14)
+                                        .padding(.top, 2)
+
                                     ForEach(visibleWorkloads) { workload in
                                         SandboxTreeWorkloadRow(
                                             workload: workload,
@@ -213,11 +305,12 @@ struct SandboxListView: View {
                         }
                     }
                     .padding(.horizontal, 10)
+                    .padding(.bottom, 16)
                 }
             }
         }
-        .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 500)
-        .padding(.top, 12)
+        .navigationSplitViewColumnWidth(min: 360, ideal: 408, max: 430)
+        .background(AppTheme.contentSurface)
         .onAppear {
             if let selectedSandboxID = appState.selectedSandboxID {
                 expandedSandboxIDs.insert(selectedSandboxID)
@@ -272,57 +365,69 @@ struct SandboxTreeSandboxRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 6) {
-                sandboxLabel
+            HStack(alignment: .top, spacing: 10) {
+                selectionMark
 
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(sandbox.status.color)
-                        .frame(width: 6, height: 6)
-
-                    Text(sandbox.status.label)
-                        .foregroundColor(sandbox.status.color)
-
-                    if workloadCount > 0 {
-                        Text("\(workloadCount) \(workloadCount == 1 ? "workload" : "workloads")")
-                            .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        sandboxLabel
+                        Spacer(minLength: 10)
+                        StatusPill(text: sandbox.status.label, color: sandbox.status.color, fill: sandbox.status.fillColor)
                     }
+
+                    Text(sandbox.id)
+                        .font(AppTheme.monoSmallFont)
+                        .foregroundColor(AppTheme.outline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .font(.caption2)
-                .lineLimit(1)
-                .padding(.leading, 40)
             }
+            .padding(.horizontal, 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? AppTheme.highlight.opacity(0.42) : Color.clear)
+                .fill(isSelected ? AppTheme.detailSurface : Color.clear)
         )
+        .shadow(color: isSelected ? Color.black.opacity(0.04) : Color.clear, radius: 8, y: 2)
     }
 
     private var sandboxLabel: some View {
         HStack(spacing: 10) {
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                 .font(.caption2.weight(.semibold))
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.outline)
                 .frame(width: 12)
 
             Image(systemName: "folder")
-                .foregroundColor(.secondary)
+                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.outline)
                 .frame(width: 18)
 
             Text(sandbox.name)
                 .font(AppTheme.sectionTitleFont)
+                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.onSurface)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(1)
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var selectionMark: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(AppTheme.selectionMark)
+                .frame(width: 3, height: 46)
+                .padding(.top, 2)
+        } else {
+            Color.clear.frame(width: 3, height: 46)
+        }
     }
 }
 
@@ -334,30 +439,45 @@ struct SandboxTreeWorkloadRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 10) {
-                Image(systemName: workload.status == .running ? "terminal.fill" : "terminal")
-                    .foregroundColor(workload.status == .running ? AppTheme.accent : .secondary)
-                    .frame(width: 18)
+                selectionMark
+
+                Circle()
+                    .fill(workload.status.color)
+                    .frame(width: 6, height: 6)
 
                 Text(workload.command)
-                    .font(AppTheme.sectionTitleFont)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium, design: .monospaced))
+                    .foregroundColor(AppTheme.onSurface)
                     .lineLimit(1)
 
                 Spacer(minLength: 12)
 
                 Text(workload.startedAt?.compactRelativeDescription ?? workload.status.label)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(AppTheme.metadataFont)
+                    .foregroundColor(workload.status == .running ? AppTheme.accent : AppTheme.outline)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? AppTheme.highlight.opacity(0.42) : Color.clear)
+                    .fill(isSelected ? AppTheme.selectionSurface : AppTheme.detailSurface)
             )
         }
         .buttonStyle(.plain)
+        .shadow(color: Color.black.opacity(0.035), radius: 6, y: 2)
+    }
+
+    @ViewBuilder
+    private var selectionMark: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(AppTheme.selectionMark)
+                .frame(width: 3, height: 28)
+        } else {
+            Color.clear.frame(width: 3, height: 28)
+        }
     }
 }
 
@@ -378,23 +498,31 @@ struct ImageListView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                SearchField(title: "Search images", text: $searchText)
-                    .frame(minWidth: 180)
-                Button {
+        VStack(spacing: 0) {
+            ListColumnHeader(
+                title: "Images",
+                primaryTitle: "Pull",
+                primarySystemImage: "arrow.down",
+                secondarySystemImage: "arrow.clockwise",
+                primaryDisabled: appState.isMutating,
+                secondaryDisabled: appState.isRefreshing || appState.isMutating,
+                primaryAction: {
                     showPullImage = true
-                } label: {
-                    Label("Pull Image", systemImage: "arrow.down.circle.fill")
+                },
+                secondaryAction: {
+                    Task {
+                        await appState.refreshAll()
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(appState.isMutating)
-            }
-            .padding(.horizontal)
+            )
+
+            SearchField(title: "Search images", text: $searchText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
 
             if !appState.systemStatus.isAvailable {
                 ServiceUnavailableView(message: appState.systemStatus.lastError)
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
                 Spacer()
             } else if filteredImages.isEmpty {
                 EmptyStateView(
@@ -402,33 +530,33 @@ struct ImageListView: View {
                     message: "Pull an OCI image reference directly from a registry and it will appear here."
                 )
             } else {
-                List {
-                    ForEach(filteredImages) { image in
-                        Button {
-                            appState.selectedImageReference = image.reference
-                        } label: {
-                            ImageRow(image: image)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Create Sandbox") {
-                                onCreateSandbox(image.reference)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(filteredImages) { image in
+                            let isSelected = appState.selectedImageReference == image.reference
+                            Button {
+                                appState.selectedImageReference = image.reference
+                            } label: {
+                                ImageRow(image: image, isSelected: isSelected)
                             }
-                            Button("Delete Image", role: .destructive) {
-                                appState.deleteImage(reference: image.reference)
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Create Sandbox") {
+                                    onCreateSandbox(image.reference)
+                                }
+                                Button("Delete Image", role: .destructive) {
+                                    appState.deleteImage(reference: image.reference)
+                                }
                             }
                         }
-                        .listRowBackground(
-                            appState.selectedImageReference == image.reference ? AppTheme.highlight.opacity(0.45) : Color.clear
-                        )
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 16)
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
             }
         }
-        .navigationSplitViewColumnWidth(min: 340, ideal: 460, max: 520)
-        .padding(.top, 12)
+        .navigationSplitViewColumnWidth(min: 360, ideal: 408, max: 430)
+        .background(AppTheme.contentSurface)
     }
 }
 
@@ -436,27 +564,42 @@ struct SettingsSummaryView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("System")
-                    .font(AppTheme.titleFont)
-                SettingsCard(
-                    title: "Runtime Contract",
-                    detail: "OpenBox now talks directly to the container SDK. The container services must already be installed and running."
-                )
-                SettingsCard(
-                    title: "Image Flow",
-                    detail: "OCI image references are pulled directly through the SDK. There is no IPSW download, restore image cache, or local image preparation step anymore."
-                )
-                SettingsCard(
-                    title: "Current Status",
-                    detail: appState.systemStatus.isAvailable
-                        ? "Connected to container services."
-                        : (appState.systemStatus.lastError ?? "Container services are unavailable.")
-                )
+        VStack(spacing: 0) {
+            ListColumnHeader(
+                title: "System",
+                secondarySystemImage: "arrow.clockwise",
+                secondaryDisabled: appState.isRefreshing || appState.isMutating,
+                secondaryAction: {
+                    Task {
+                        await appState.refreshAll()
+                    }
+                }
+            )
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsCard(
+                        title: "Runtime Contract",
+                        detail: "Configuration policy"
+                    )
+                    SettingsCard(
+                        title: "Image Flow",
+                        detail: "Pipeline behavior"
+                    )
+                    SettingsCard(
+                        title: "Current Status",
+                        detail: appState.systemStatus.isAvailable
+                            ? "Connected to local node"
+                            : (appState.systemStatus.lastError ?? "Container services unavailable"),
+                        isSelected: true
+                    )
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 16)
             }
-            .padding(24)
         }
+        .navigationSplitViewColumnWidth(min: 360, ideal: 408, max: 430)
+        .background(AppTheme.contentSurface)
     }
 }
 
@@ -468,59 +611,101 @@ struct DetailColumnView: View {
     let onRunCommand: (SandboxRecord) -> Void
 
     var body: some View {
-        switch appState.selectedSidebar {
-        case .sandboxes:
-            if let sandbox = appState.selectedSandbox {
-                SandboxDetailView(
-                    sandbox: sandbox,
-                    detail: appState.selectedSandboxDetail,
-                    selectedWorkload: appState.selectedWorkload,
-                    onRunCommand: onRunCommand
-                )
-            } else {
-                EmptyDetailView(
-                    title: "Select a sandbox",
-                    message: "Sandbox configuration, workloads, logs, and network details appear here."
-                )
+        Group {
+            switch appState.selectedSidebar {
+            case .sandboxes:
+                if let sandbox = appState.selectedSandbox {
+                    SandboxDetailView(
+                        sandbox: sandbox,
+                        detail: appState.selectedSandboxDetail,
+                        selectedWorkload: appState.selectedWorkload,
+                        onRunCommand: onRunCommand
+                    )
+                } else {
+                    EmptyDetailView(
+                        title: "Select a sandbox",
+                        message: "Sandbox configuration, workloads, logs, and network details appear here."
+                    )
+                }
+            case .images:
+                if let image = appState.selectedImage {
+                    ImageDetailView(
+                        image: image,
+                        onCreateSandbox: {
+                            createSandboxReference = image.reference
+                            showCreateSandbox = true
+                        }
+                    )
+                } else {
+                    EmptyDetailView(
+                        title: "Select an image",
+                        message: "Inspect local OCI images and create sandboxes directly from them."
+                    )
+                }
+            case .settings:
+                SettingsDetailView()
             }
-        case .images:
-            if let image = appState.selectedImage {
-                ImageDetailView(
-                    image: image,
-                    onCreateSandbox: {
-                        createSandboxReference = image.reference
-                        showCreateSandbox = true
-                    }
-                )
-            } else {
-                EmptyDetailView(
-                    title: "Select an image",
-                    message: "Inspect local OCI images and create sandboxes directly from them."
-                )
-            }
-        case .settings:
-            SettingsDetailView()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.detailSurface)
     }
 }
 
 struct ImageRow: View {
     let image: OCIImageRecord
+    let isSelected: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(image.reference)
-                .font(AppTheme.sectionTitleFont)
-                .lineLimit(2)
-            HStack(spacing: 12) {
-                StatusPill(text: image.shortDigest, color: AppTheme.accent)
-                Text(image.mediaType)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+        HStack(alignment: .top, spacing: 10) {
+            selectionMark
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(image.reference)
+                        .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                        .foregroundColor(AppTheme.onSurface)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+
+                    Spacer(minLength: 8)
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(AppTheme.accent)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    StatusPill(text: image.shortDigest, color: AppTheme.secondary, fill: AppTheme.detailSurface)
+                    Text(image.mediaType)
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.outline)
+                        .italic()
+                        .lineLimit(1)
+                }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? AppTheme.selectionSurface : Color.clear)
+        )
+    }
+
+    @ViewBuilder
+    private var selectionMark: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(AppTheme.selectionMark)
+                .frame(width: 3, height: 34)
+                .padding(.top, 1)
+        } else {
+            Color.clear.frame(width: 3, height: 34)
+        }
     }
 }
 
@@ -567,6 +752,7 @@ struct SandboxDetailView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppTheme.detailSurface)
         .task(id: runningWorkloadIDs) {
             guard !runningWorkloadIDs.isEmpty else { return }
             while !Task.isCancelled {
@@ -594,114 +780,118 @@ struct SandboxSummaryCard: View {
         sandbox.status.isRunning ? "stop.fill" : "play.fill"
     }
 
+    private var uptimeText: String {
+        guard sandbox.status.isRunning, let startedAt = sandbox.startedAt else {
+            return "Uptime -"
+        }
+
+        let interval = max(0, Int(Date().timeIntervalSince(startedAt)))
+        let days = interval / 86_400
+        let hours = (interval % 86_400) / 3_600
+        let minutes = (interval % 3_600) / 60
+
+        if days > 0 {
+            return "Uptime \(days)d \(hours)h \(minutes)m"
+        }
+        if hours > 0 {
+            return "Uptime \(hours)h \(minutes)m"
+        }
+        return "Uptime \(minutes)m"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(sandbox.name)
-                        .font(AppTheme.titleFont)
-                        .lineLimit(2)
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(sandbox.name)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(AppTheme.onSurface)
+                    .lineLimit(2)
+
+                HStack(spacing: 12) {
+                    StatusBadge(text: sandbox.status.label, color: sandbox.status.color, fill: sandbox.status.fillColor)
+                    Text(uptimeText)
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.onSurfaceVariant)
                     Text(sandbox.id)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        .font(AppTheme.monoSmallFont)
+                        .foregroundColor(AppTheme.outline)
+                        .lineLimit(1)
                         .textSelection(.enabled)
                 }
-                Spacer()
-                StatusBadge(text: sandbox.status.label, color: sandbox.status.color)
+
+                HStack(spacing: 12) {
+                    Button {
+                        onRunCommand()
+                    } label: {
+                        Label("Run Command", systemImage: "terminal")
+                            .frame(minWidth: 108)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(AppTheme.accent)
+                    .disabled(!sandbox.status.isRunning || appState.isMutating)
+                    .help("Run Command")
+
+                    Button {
+                        appState.toggleSandbox(sandbox.id)
+                    } label: {
+                        Label(toggleSandboxTitle, systemImage: toggleSandboxIcon)
+                            .frame(minWidth: 112)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(sandbox.status.isRunning ? AppTheme.surfaceContainer : AppTheme.accent)
+                    .foregroundColor(sandbox.status.isRunning ? AppTheme.onSurface : .white)
+                    .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
+                    .help(toggleSandboxTitle)
+                }
             }
 
-            HStack(spacing: 8) {
-                Button {
-                    onRunCommand()
-                } label: {
-                    Label("Run Command", systemImage: "terminal")
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 24) {
+                    configurationSection
+                    networkSection
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(AppTheme.accent)
-                .disabled(!sandbox.status.isRunning || appState.isMutating)
-                .help("Run Command")
 
-                Button {
-                    appState.toggleSandbox(sandbox.id)
-                } label: {
-                    Label(toggleSandboxTitle, systemImage: toggleSandboxIcon)
+                VStack(alignment: .leading, spacing: 16) {
+                    configurationSection
+                    networkSection
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(sandbox.status.isRunning ? AppTheme.danger : AppTheme.accent)
-                .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
-                .help(toggleSandboxTitle)
-
-                Spacer()
-            }
-            .font(.caption)
-
-            Divider()
-
-            SandboxDetailSection(title: "Configuration") {
-                PropertyRow(label: "OCI Image", value: sandbox.imageReference)
-                PropertyRow(label: "Digest", value: sandbox.imageDigest)
-                PropertyRow(label: "Runtime", value: sandbox.runtimeHandler)
-                PropertyRow(label: "Platform", value: sandbox.platform)
-                PropertyRow(label: "Resources", value: "\(sandbox.cpuCores) CPU / \(sandbox.memoryGB) GB RAM / \(sandbox.diskGB.map(String.init) ?? "—") GB Disk")
-                PropertyRow(label: "Workspace", value: sandbox.workspacePath ?? "Not mounted")
-                PropertyRow(label: "Share Mode", value: sandbox.shareMode?.label ?? "—")
-                PropertyRow(label: "Started", value: sandbox.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
             }
 
             if let lastError = sandbox.lastError ?? detail?.lastError {
-                Divider()
                 SandboxDetailSection(title: "Last Error") {
                     Text(lastError)
-                        .font(.caption)
+                        .font(AppTheme.monoFont)
                         .foregroundColor(AppTheme.danger)
                         .textSelection(.enabled)
                 }
+                .frame(maxWidth: 660)
             }
 
-            Divider()
-
-            SandboxDetailSection(title: "Networks") {
-                if let detail, !detail.networks.isEmpty {
-                    ForEach(detail.networks) { network in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(network.networkID)
-                                .font(AppTheme.sectionTitleFont)
-                            PropertyRow(label: "Hostname", value: network.hostname)
-                            PropertyRow(label: "IPv4", value: network.ipv4Address)
-                            PropertyRow(label: "Gateway", value: network.gateway)
-                            PropertyRow(label: "DNS", value: network.dnsServers.joined(separator: ", ").ifEmpty("—"))
-                        }
-                        .padding(.vertical, 4)
-
-                        if network.id != detail.networks.last?.id {
-                            Divider()
-                        }
-                    }
-                } else {
-                    Text("No network attachments reported for this sandbox.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Diagnostic Logs")
+                        .font(AppTheme.sectionTitleFont)
+                        .foregroundColor(AppTheme.outline)
+                        .textCase(.uppercase)
+                    Spacer()
+                    Text("Event Log")
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.accent)
+                    Text("Boot Log")
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.outline)
+                    Text("STDOUT")
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.outline)
                 }
+
+                DiagnosticLogPanel(logPaths: detail?.logPaths)
             }
+            .frame(maxWidth: 660)
 
-            Divider()
-
-            SandboxDetailSection(title: "Logs") {
-                if let logPaths = detail?.logPaths {
-                    PathBlock(title: "Event Log", path: logPaths.eventLogPath)
-                    PathBlock(title: "Boot Log", path: logPaths.bootLogPath)
-                    PathBlock(title: "Guest Agent STDOUT", path: logPaths.guestAgentLogPath)
-                    PathBlock(title: "Guest Agent STDERR", path: logPaths.guestAgentStderrLogPath)
-                } else {
-                    Text("No sandbox log paths were returned.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Divider()
+            SectionBreak()
 
             HStack {
                 Spacer()
@@ -710,15 +900,15 @@ struct SandboxSummaryCard: View {
                 } label: {
                     Label("Remove Sandbox", systemImage: "trash")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
                 .tint(AppTheme.danger)
                 .disabled(appState.isMutating)
             }
+            .frame(maxWidth: 660)
         }
-        .padding(18)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(AppTheme.detailSurface)
         .alert("Remove Sandbox?", isPresented: $showingRemoveConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Remove Sandbox", role: .destructive) {
@@ -727,6 +917,34 @@ struct SandboxSummaryCard: View {
         } message: {
             Text("This will remove \"\(sandbox.name)\". This action cannot be undone.")
         }
+    }
+
+    private var configurationSection: some View {
+        SandboxDetailSection(title: "Configuration") {
+            PropertyRow(label: "OCI Image", value: sandbox.imageReference)
+            PropertyRow(label: "Digest", value: sandbox.imageDigest.shortDigest)
+            PropertyRow(label: "Runtime", value: sandbox.runtimeHandler)
+            PropertyRow(label: "Resources", value: "\(sandbox.cpuCores) vCPU / \(sandbox.memoryGB)GB RAM")
+            PropertyRow(label: "Workspace", value: sandbox.workspacePath ?? "Not mounted")
+            PropertyRow(label: "Share Mode", value: sandbox.shareMode?.label ?? "-")
+        }
+        .frame(width: 240)
+    }
+
+    private var networkSection: some View {
+        SandboxDetailSection(title: "Network Identity") {
+            if let network = detail?.networks.first {
+                PropertyRow(label: "Hostname", value: network.hostname)
+                PropertyRow(label: "IPv4 Address", value: network.ipv4Address)
+                PropertyRow(label: "Gateway", value: network.gateway)
+                PropertyRow(label: "DNS Resolver", value: network.dnsServers.joined(separator: ", ").ifEmpty("-"))
+            } else {
+                Text("No network attachments reported.")
+                    .font(AppTheme.metadataFont)
+                    .foregroundColor(AppTheme.outline)
+            }
+        }
+        .frame(width: 240)
     }
 }
 
@@ -738,8 +956,60 @@ struct SandboxDetailSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(AppTheme.sectionTitleFont)
+                .foregroundColor(AppTheme.onSurfaceVariant)
+                .textCase(.uppercase)
             content
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surfaceContainer)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+struct DiagnosticLogPanel: View {
+    let logPaths: SandboxLogRecord?
+
+    private var lines: [String] {
+        guard let logPaths else {
+            return [
+                "[diagnostics] No sandbox log paths were returned.",
+                "[diagnostics] Start or refresh the sandbox to collect events."
+            ]
+        }
+
+        return [
+            "[event] \(logPaths.eventLogPath)",
+            "[boot] \(logPaths.bootLogPath)",
+            "[stdout] \(logPaths.guestAgentLogPath ?? "-")",
+            "[stderr] \(logPaths.guestAgentStderrLogPath ?? "-")"
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(lines.indices, id: \.self) { index in
+                Text(lines[index])
+                    .font(AppTheme.monoFont)
+                    .foregroundColor(index == 0 ? AppTheme.terminalAccent : AppTheme.terminalText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+
+            Rectangle()
+                .fill(AppTheme.terminalText.opacity(0.12))
+                .frame(height: 1)
+                .padding(.top, 4)
+
+            Text("_")
+                .font(AppTheme.monoFont)
+                .foregroundColor(AppTheme.terminalMuted)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+        .background(AppTheme.terminalSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -751,25 +1021,22 @@ struct WorkloadDetailView: View {
     let viewportHeight: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Workload")
+                        Text(workload.command)
                             .font(AppTheme.titleFont)
+                            .lineLimit(2)
+                            .textSelection(.enabled)
                         Text(sandbox.name)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(AppTheme.monoSmallFont)
+                            .foregroundColor(AppTheme.outline)
                             .lineLimit(1)
                     }
                     Spacer()
                     StatusBadge(text: workload.status.label, color: workload.status.color)
                 }
-
-                Text(workload.command)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 12) {
                     if workload.status == .running {
@@ -788,8 +1055,8 @@ struct WorkloadDetailView: View {
                 }
             }
             .padding(18)
-            .background(AppTheme.panel)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(AppTheme.detailSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             if workload.isTerminal {
                 InteractiveTerminalBlock(
@@ -813,7 +1080,7 @@ struct WorkloadDetailView: View {
                 LiveLogBlock(title: "STDERR", path: workload.stderrLogPath, isFollowing: workload.status == .running)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: 720, alignment: .topLeading)
     }
 
     private var terminalHeight: CGFloat {
@@ -861,8 +1128,8 @@ struct ImageDetailView: View {
                     }
                 }
                 .padding(18)
-                .background(AppTheme.panel)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(AppTheme.contentSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                 InfoCard(title: "Reference") {
                     PropertyRow(label: "OCI Reference", value: image.reference)
@@ -876,8 +1143,9 @@ struct ImageDetailView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .padding(24)
+            .padding(28)
         }
+        .background(AppTheme.detailSurface)
     }
 }
 
@@ -895,14 +1163,17 @@ struct SettingsDetailView: View {
                     PropertyRow(label: "Connected", value: appState.systemStatus.isAvailable ? "Yes" : "No")
                     PropertyRow(label: "Version", value: appState.systemStatus.version ?? "—")
                     PropertyRow(label: "Build", value: appState.systemStatus.build ?? "—")
-                    PropertyRow(label: "App Root", value: appState.systemStatus.appRoot ?? "—")
-                    PropertyRow(label: "Install Root", value: appState.systemStatus.installRoot ?? "—")
                     if let lastError = appState.systemStatus.lastError {
                         Text(lastError)
                             .font(.caption)
                             .foregroundColor(AppTheme.danger)
                             .textSelection(.enabled)
                     }
+                }
+
+                InfoCard(title: "File Locations") {
+                    PathBlock(title: "App Root", path: appState.systemStatus.appRoot)
+                    PathBlock(title: "Install Root", path: appState.systemStatus.installRoot)
                 }
 
                 InfoCard(title: "Terminal Diagnostics") {
@@ -928,8 +1199,9 @@ struct SettingsDetailView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .padding(24)
+            .padding(28)
         }
+        .background(AppTheme.detailSurface)
     }
 }
 
@@ -940,22 +1212,35 @@ struct PullImageSheet: View {
     @State private var draft = ImagePullDraft()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Pull OCI Image")
-                .font(AppTheme.titleFont)
+        VStack(spacing: 0) {
+            ModalHeader(
+                title: "Pull OCI Image",
+                subtitle: "Fetch an OCI reference through the container SDK.",
+                systemImage: "arrow.down.circle"
+            )
 
-            Form {
+            VStack(alignment: .leading, spacing: 14) {
+                FormLabel("Image Reference")
                 TextField("ghcr.io/org/image:tag", text: $draft.reference)
-                Text("The image reference is sent directly to the container SDK. No local conversion or preparation step is used.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+                    .textFieldStyle(.plain)
+                    .font(AppTheme.monoFont)
+                    .padding(10)
+                    .background(AppTheme.fieldSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .innerFieldShadow()
 
-            HStack {
-                Spacer()
+                InfoNote(
+                    title: "Image Flow",
+                    message: "The image reference is sent directly to the container SDK. No local conversion or preparation step is used."
+                )
+            }
+            .padding(24)
+
+            ModalFooter {
                 Button("Cancel") {
                     dismiss()
                 }
+                Spacer()
                 Button("Pull") {
                     let reference = draft.reference
                     dismiss()
@@ -967,8 +1252,9 @@ struct PullImageSheet: View {
                 .disabled(draft.reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(24)
         .frame(width: 520)
+        .background(AppTheme.detailSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -998,44 +1284,88 @@ struct CreateSandboxSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Create Sandbox")
-                .font(AppTheme.titleFont)
+        VStack(spacing: 0) {
+            ModalHeader(
+                title: "New Sandbox",
+                subtitle: "Initialize a fresh isolated container environment.",
+                systemImage: "plus.square.on.square"
+            )
 
-            Form {
-                TextField("Sandbox name", text: $draft.name)
-                TextField("OCI image reference", text: $draft.imageReference)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        FormLabel("Sandbox Name")
+                        TextField("Sandbox name", text: $draft.name)
+                            .textFieldStyle(.plain)
+                            .padding(10)
+                            .background(AppTheme.fieldSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .innerFieldShadow()
 
-                Stepper("CPU Cores: \(draft.cpuCores)", value: $draft.cpuCores, in: 2...12)
-                Stepper("Memory: \(draft.memoryGB) GB", value: $draft.memoryGB, in: 4...64, step: 2)
-                Stepper("Disk: \(draft.diskGB) GB", value: $draft.diskGB, in: 20...256, step: 10)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        TextField("Host workspace (optional)", text: $draft.workspacePath)
-                        Button("Choose Folder") {
-                            showFolderPicker = true
-                        }
+                        FormLabel("Image Reference")
+                        TextField("OCI image reference", text: $draft.imageReference)
+                            .textFieldStyle(.plain)
+                            .font(AppTheme.monoFont)
+                            .padding(10)
+                            .background(AppTheme.fieldSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .innerFieldShadow()
                     }
-                    Picker("Share Mode", selection: $draft.shareMode) {
-                        ForEach(FileShareMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Resources")
+                            .font(AppTheme.sectionTitleFont)
+                            .foregroundColor(AppTheme.onSurfaceVariant)
+                            .textCase(.uppercase)
+                        Stepper("CPU Cores: \(draft.cpuCores)", value: $draft.cpuCores, in: 2...12)
+                        Stepper("Memory: \(draft.memoryGB) GB", value: $draft.memoryGB, in: 4...64, step: 2)
+                        Stepper("Disk: \(draft.diskGB) GB", value: $draft.diskGB, in: 20...256, step: 10)
                     }
-                    .pickerStyle(.segmented)
-                    Text("If the image is not local yet, OpenBox will pull it from the OCI registry before creating the sandbox.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    .padding(16)
+                    .background(AppTheme.contentSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        FormLabel("Host Workspace")
+                        HStack(spacing: 8) {
+                            TextField("Host workspace (optional)", text: $draft.workspacePath)
+                                .textFieldStyle(.plain)
+                                .font(AppTheme.monoFont)
+                                .padding(10)
+                                .background(AppTheme.fieldSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .innerFieldShadow()
+                            Button("Choose Folder") {
+                                showFolderPicker = true
+                            }
+                            .controlSize(.small)
+                        }
+
+                        FormLabel("Share Mode")
+                        Picker("Share Mode", selection: $draft.shareMode) {
+                            ForEach(FileShareMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+
+                        Text("If the image is not local yet, OpenBox will pull it from the OCI registry before creating the sandbox.")
+                            .font(AppTheme.metadataFont)
+                            .foregroundColor(AppTheme.outline)
+                    }
+
+                    Toggle("Create and start immediately", isOn: $draft.autoStart)
+                        .toggleStyle(.switch)
                 }
-
-                Toggle("Create and start immediately", isOn: $draft.autoStart)
+                .padding(24)
             }
 
-            HStack {
-                Spacer()
+            ModalFooter {
                 Button("Cancel") {
                     dismiss()
                 }
+                Spacer()
                 Button("Create") {
                     let submittedDraft = draft
                     dismiss()
@@ -1047,8 +1377,9 @@ struct CreateSandboxSheet: View {
                 .disabled(!canSubmit)
             }
         }
-        .padding(24)
         .frame(width: 620)
+        .background(AppTheme.detailSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 draft.workspacePath = url.path
@@ -1094,43 +1425,75 @@ struct RunWorkloadSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Run Command")
-                .font(AppTheme.titleFont)
+        VStack(spacing: 0) {
+            ModalHeader(
+                title: "Run Command",
+                subtitle: sandbox.name,
+                systemImage: "terminal"
+            )
 
-            Form {
+            VStack(alignment: .leading, spacing: 14) {
+                FormLabel("Mode")
                 Picker("Mode", selection: $mode) {
                     ForEach(WorkloadRunMode.allCases) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
 
-                Text("Sandbox: \(sandbox.name)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                PathCapsule(systemImage: "cube.box", text: sandbox.id)
 
                 switch mode {
                 case .command:
+                    FormLabel("Command String")
                     TextField("Shell command", text: $shellCommand)
+                        .textFieldStyle(.plain)
+                        .font(AppTheme.monoFont)
+                        .padding(10)
+                        .background(AppTheme.fieldSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .innerFieldShadow()
+                    FormLabel("Working Directory")
                     TextField("Working directory", text: $workingDirectory)
+                        .textFieldStyle(.plain)
+                        .font(AppTheme.monoFont)
+                        .padding(10)
+                        .background(AppTheme.fieldSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .innerFieldShadow()
                     Text("Commands run as `\(sandbox.shellPath) -lc <command>` inside the sandbox.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(AppTheme.outline)
                 case .interactiveShell:
+                    FormLabel("Shell Executable")
                     TextField("Shell executable", text: $shellPath)
+                        .textFieldStyle(.plain)
+                        .font(AppTheme.monoFont)
+                        .padding(10)
+                        .background(AppTheme.fieldSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .innerFieldShadow()
+                    FormLabel("Working Directory")
                     TextField("Working directory", text: $workingDirectory)
+                        .textFieldStyle(.plain)
+                        .font(AppTheme.monoFont)
+                        .padding(10)
+                        .background(AppTheme.fieldSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .innerFieldShadow()
                     Text(shellModeHelpText)
-                        .font(.caption)
-                        .foregroundColor(sandbox.isMacOSGuest ? .secondary : AppTheme.danger)
+                        .font(AppTheme.metadataFont)
+                        .foregroundColor(sandbox.isMacOSGuest ? AppTheme.outline : AppTheme.danger)
                 }
             }
+            .padding(24)
 
-            HStack {
-                Spacer()
+            ModalFooter {
                 Button("Cancel") {
                     dismiss()
                 }
+                Spacer()
                 Button(primaryActionTitle) {
                     let submittedDraft = WorkloadDraft(
                         sandboxID: sandbox.id,
@@ -1149,8 +1512,9 @@ struct RunWorkloadSheet: View {
                 .accessibilityLabel(primaryActionTitle)
             }
         }
-        .padding(24)
         .frame(width: 560)
+        .background(AppTheme.detailSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var shellModeHelpText: String {
@@ -1158,6 +1522,168 @@ struct RunWorkloadSheet: View {
             return "Interactive shell workloads are currently supported for macOS sandboxes only."
         }
         return "Starts a TTY shell and opens it in the workload detail terminal after launch."
+    }
+}
+
+struct ListColumnHeader: View {
+    let title: String
+    var primaryTitle: String? = nil
+    var primarySystemImage: String? = nil
+    var secondarySystemImage: String? = nil
+    var primaryDisabled = false
+    var secondaryDisabled = false
+    var primaryAction: (() -> Void)? = nil
+    var secondaryAction: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(AppTheme.outline)
+                .textCase(.uppercase)
+            Spacer()
+
+            if let primaryTitle, let primarySystemImage, let primaryAction {
+                Button(action: primaryAction) {
+                    Label(primaryTitle, systemImage: primarySystemImage)
+                        .font(.system(size: 12, weight: .bold))
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(AppTheme.accent)
+                .disabled(primaryDisabled)
+            }
+
+            if let secondarySystemImage, let secondaryAction {
+                Button(action: secondaryAction) {
+                    Image(systemName: secondarySystemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(AppTheme.outline)
+                .disabled(secondaryDisabled)
+                .help("Refresh")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+    }
+}
+
+struct ModalHeader: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(AppTheme.accent)
+                .frame(width: 34, height: 34)
+                .background(AppTheme.selectionSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(AppTheme.titleSmallFont)
+                    .foregroundColor(AppTheme.onSurface)
+                Text(subtitle)
+                    .font(AppTheme.metadataFont)
+                    .foregroundColor(AppTheme.outline)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+        .background(AppTheme.detailSurface)
+    }
+}
+
+struct ModalFooter<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 10) {
+            content
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .background(AppTheme.contentSurface)
+    }
+}
+
+struct FormLabel: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(AppTheme.labelFont)
+            .foregroundColor(AppTheme.onSurfaceVariant)
+            .textCase(.uppercase)
+    }
+}
+
+struct InfoNote: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .foregroundColor(AppTheme.accent)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.secondary)
+                Text(message)
+                    .font(AppTheme.metadataFont)
+                    .foregroundColor(AppTheme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(AppTheme.selectionSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+struct PathCapsule: View {
+    let systemImage: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundColor(AppTheme.outline)
+            Text(text)
+                .font(AppTheme.monoSmallFont)
+                .foregroundColor(AppTheme.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(AppTheme.detailSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+struct SectionBreak: View {
+    var height: CGFloat = 8
+
+    var body: some View {
+        Color.clear.frame(height: height)
     }
 }
 
@@ -1170,17 +1696,17 @@ struct ServiceUnavailableView: View {
                 .font(AppTheme.sectionTitleFont)
                 .foregroundColor(AppTheme.danger)
             Text(message ?? "OpenBox could not reach the container services.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(AppTheme.metadataFont)
+                .foregroundColor(AppTheme.onSurfaceVariant)
                 .textSelection(.enabled)
             Text("Make sure the container runtime is already installed and started before using this app.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(AppTheme.metadataFont)
+                .foregroundColor(AppTheme.outline)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AppTheme.errorSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -1198,15 +1724,18 @@ struct EmptyStateView: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Text(title)
                 .font(AppTheme.titleFont)
+                .foregroundColor(AppTheme.onSurface)
             Text(message)
-                .foregroundColor(.secondary)
+                .font(AppTheme.bodyFont)
+                .foregroundColor(AppTheme.outline)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
+        .background(AppTheme.detailSurface)
     }
 }
 
@@ -1218,29 +1747,56 @@ struct InfoCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(AppTheme.sectionTitleFont)
+                .foregroundColor(AppTheme.onSurfaceVariant)
+                .textCase(.uppercase)
             content
         }
-        .padding(18)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.contentSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
 struct SettingsCard: View {
     let title: String
     let detail: String
+    var isSelected = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(AppTheme.sectionTitleFont)
-            Text(detail)
-                .font(.caption)
-                .foregroundColor(.secondary)
+        HStack(spacing: 10) {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(AppTheme.selectionMark)
+                    .frame(width: 3, height: 32)
+            } else {
+                Color.clear.frame(width: 3, height: 32)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .foregroundColor(AppTheme.onSurface)
+                Text(detail)
+                    .font(AppTheme.metadataFont)
+                    .foregroundColor(isSelected ? AppTheme.accent : AppTheme.outline)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppTheme.accent)
+            }
         }
-        .padding(14)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? AppTheme.detailSurface : Color.clear)
+        )
     }
 }
 
@@ -1257,23 +1813,28 @@ struct PropertyRow: View {
             if usesStackedLayout {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(label)
-                        .foregroundColor(.secondary)
+                        .font(AppTheme.labelFont)
+                        .foregroundColor(AppTheme.outline)
                     Text(value)
+                        .font(AppTheme.monoSmallFont)
+                        .foregroundColor(AppTheme.secondary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                HStack(alignment: .top) {
+                HStack(alignment: .firstTextBaseline) {
                     Text(label)
-                        .foregroundColor(.secondary)
+                        .font(AppTheme.labelFont)
+                        .foregroundColor(AppTheme.outline)
                     Spacer(minLength: 16)
                     Text(value)
+                        .font(AppTheme.bodyFont)
+                        .foregroundColor(AppTheme.onSurface)
                         .multilineTextAlignment(.trailing)
                         .textSelection(.enabled)
                 }
             }
         }
-        .font(.caption)
     }
 }
 
@@ -1284,18 +1845,10 @@ struct PathBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            if let path, !path.isEmpty {
-                Text(path)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .foregroundColor(.primary)
-            } else {
-                Text("—")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+                .font(AppTheme.labelFont)
+                .foregroundColor(AppTheme.outline)
+                .textCase(.uppercase)
+            PathCapsule(systemImage: "folder", text: path?.ifEmpty("-") ?? "-")
         }
     }
 }
@@ -1335,6 +1888,33 @@ struct InteractiveTerminalBlock: View {
                     .help("Allow terminal image protocols such as Kitty, iTerm2, and sixel.")
             }
 
+            terminalShell
+
+            Text(footerText)
+                .font(.caption2)
+                .foregroundColor(AppTheme.outline)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var terminalShell: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(Color(red: 255 / 255, green: 95 / 255, blue: 87 / 255)).frame(width: 8, height: 8)
+                Circle().fill(Color(red: 255 / 255, green: 189 / 255, blue: 46 / 255)).frame(width: 8, height: 8)
+                Circle().fill(Color(red: 39 / 255, green: 201 / 255, blue: 63 / 255)).frame(width: 8, height: 8)
+                Text(workload.command)
+                    .font(AppTheme.monoSmallFont)
+                    .foregroundColor(AppTheme.terminalMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.leading, 8)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(AppTheme.terminalChrome)
+
             if workload.status == .running, let terminalIO {
                 EmbeddedTerminalView(
                     terminalIO: terminalIO,
@@ -1354,35 +1934,16 @@ struct InteractiveTerminalBlock: View {
                 )
                 .frame(maxWidth: .infinity)
                 .frame(height: terminalHeight)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
-                        .allowsHitTesting(false)
-                )
+                .background(AppTheme.terminalSurface)
             } else {
                 Text(statusText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
-                    .background(AppTheme.background.opacity(0.82))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
-                            .allowsHitTesting(false)
-                    )
+                    .font(AppTheme.monoFont)
+                    .foregroundColor(AppTheme.terminalMuted)
+                    .frame(maxWidth: .infinity, minHeight: 128, alignment: .center)
+                    .background(AppTheme.terminalSurface)
             }
-
-            Text(footerText)
-                .font(.caption2)
-                .foregroundColor(.secondary)
         }
-        .padding(18)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var statusText: String {
@@ -1467,12 +2028,8 @@ struct LiveLogBlock: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(minHeight: 92, maxHeight: 180)
-                .background(AppTheme.background.opacity(0.82))
+                .background(AppTheme.contentSurface)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
-                )
                 .onChange(of: snapshot.displayText) { _, _ in
                     guard isFollowing else { return }
                     proxy.scrollTo(Self.bottomID, anchor: .bottom)
@@ -1578,25 +2135,29 @@ struct SearchField: View {
     var body: some View {
         HStack {
             Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.outline)
             TextField(title, text: $text)
+                .textFieldStyle(.plain)
         }
-        .padding(8)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(AppTheme.fieldSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .innerFieldShadow()
     }
 }
 
 struct StatusBadge: View {
     let text: String
     let color: Color
+    var fill: Color? = nil
 
     var body: some View {
         Text(text)
-            .font(.caption2)
+            .font(.system(size: 10, weight: .bold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(color.opacity(0.22))
+            .background(fill ?? color.opacity(0.16))
             .foregroundColor(color)
             .clipShape(Capsule())
     }
@@ -1605,13 +2166,14 @@ struct StatusBadge: View {
 struct StatusPill: View {
     let text: String
     let color: Color
+    var fill: Color? = nil
 
     var body: some View {
         Text(text)
-            .font(.caption2)
+            .font(.system(size: 10, weight: .semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(color.opacity(0.18))
+            .background(fill ?? color.opacity(0.14))
             .foregroundColor(color)
             .clipShape(Capsule())
     }
@@ -1643,9 +2205,9 @@ struct BannerView: View {
             .buttonStyle(.plain)
         }
         .padding(14)
-        .background(AppTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
+        .background(AppTheme.detailSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 12, y: 4)
     }
 }
 
@@ -1661,39 +2223,68 @@ struct ActivityBubble: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(AppTheme.panel)
+        .background(AppTheme.detailSurface)
         .clipShape(Capsule())
         .shadow(color: Color.black.opacity(0.08), radius: 12, y: 3)
     }
 }
 
 enum AppTheme {
-    static let background = Color(nsColor: NSColor(name: nil) { appearance in
-        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-            return NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.13, alpha: 1.0)
-        }
-        return NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.92, alpha: 1.0)
-    })
+    static let windowSurface = Color(red: 245 / 255, green: 245 / 255, blue: 247 / 255)
+    static let sidebarSurface = Color(red: 242 / 255, green: 242 / 255, blue: 247 / 255)
+    static let contentSurface = Color(red: 247 / 255, green: 248 / 255, blue: 250 / 255)
+    static let detailSurface = Color.white
+    static let fieldSurface = Color.white
+    static let surfaceContainer = Color(red: 238 / 255, green: 238 / 255, blue: 240 / 255)
+    static let surfaceContainerHigh = Color(red: 232 / 255, green: 232 / 255, blue: 234 / 255)
+    static let background = windowSurface
+    static let panel = detailSurface
 
-    static let panel = Color(nsColor: NSColor(name: nil) { appearance in
-        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-            return NSColor(calibratedRed: 0.18, green: 0.18, blue: 0.20, alpha: 1.0)
-        }
-        return NSColor(calibratedRed: 0.99, green: 0.98, blue: 0.96, alpha: 1.0)
-    })
+    static let onSurface = Color(red: 26 / 255, green: 28 / 255, blue: 29 / 255)
+    static let onSurfaceVariant = Color(red: 65 / 255, green: 71 / 255, blue: 84 / 255)
+    static let outline = Color(red: 113 / 255, green: 119 / 255, blue: 134 / 255)
+    static let secondary = Color(red: 0 / 255, green: 102 / 255, blue: 135 / 255)
 
-    static let accent = Color(red: 0.07, green: 0.50, blue: 0.44)
-    static let highlight = Color(nsColor: NSColor(name: nil) { appearance in
-        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-            return NSColor(calibratedRed: 0.36, green: 0.32, blue: 0.26, alpha: 1.0)
-        }
-        return NSColor(calibratedRed: 0.93, green: 0.87, blue: 0.74, alpha: 1.0)
-    })
-    static let warning = Color(red: 0.84, green: 0.52, blue: 0.28)
-    static let danger = Color(red: 0.78, green: 0.28, blue: 0.22)
-    static let bodyFont = Font.custom("Avenir Next", size: 13)
-    static let sectionTitleFont = Font.custom("Avenir Next", size: 14).weight(.semibold)
-    static let titleFont = Font.custom("Avenir Next", size: 20).weight(.semibold)
+    static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
+    static let selectionMark = Color(red: 90 / 255, green: 200 / 255, blue: 250 / 255)
+    static let selectionSurface = Color(red: 234 / 255, green: 247 / 255, blue: 255 / 255)
+    static let stoppedSurface = sidebarSurface
+    static let errorSurface = Color(red: 255 / 255, green: 241 / 255, blue: 240 / 255)
+    static let warningSurface = Color(red: 255 / 255, green: 247 / 255, blue: 230 / 255)
+    static let terminalChrome = Color(red: 31 / 255, green: 35 / 255, blue: 39 / 255)
+    static let terminalSurface = Color(red: 18 / 255, green: 24 / 255, blue: 26 / 255)
+    static let terminalText = Color(red: 232 / 255, green: 236 / 255, blue: 239 / 255)
+    static let terminalMuted = Color(red: 139 / 255, green: 148 / 255, blue: 158 / 255)
+    static let terminalAccent = Color(red: 40 / 255, green: 160 / 255, blue: 196 / 255)
+    static let highlight = selectionMark
+    static let warning = Color(red: 255 / 255, green: 149 / 255, blue: 0 / 255)
+    static let danger = Color(red: 255 / 255, green: 59 / 255, blue: 48 / 255)
+
+    static let bodyFont = Font.system(size: 13, weight: .regular)
+    static let labelFont = Font.system(size: 11, weight: .semibold)
+    static let metadataFont = Font.system(size: 11, weight: .regular)
+    static let monoSmallFont = Font.system(size: 11, weight: .medium, design: .monospaced)
+    static let monoFont = Font.system(size: 12, weight: .medium, design: .monospaced)
+    static let sectionTitleFont = Font.system(size: 13, weight: .semibold)
+    static let titleSmallFont = Font.system(size: 16, weight: .semibold)
+    static let titleFont = Font.system(size: 20, weight: .semibold)
+    static let sidebarTitleFont = Font.system(size: 14, weight: .semibold)
+}
+
+private struct InnerFieldShadow: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.surfaceContainerHigh.opacity(0.7), lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+    }
+}
+
+private extension View {
+    func innerFieldShadow() -> some View {
+        modifier(InnerFieldShadow())
+    }
 }
 
 extension SidebarSection {
@@ -1734,15 +2325,28 @@ extension SandboxStatus {
     var color: Color {
         switch self {
         case .pulling, .creating, .starting:
-            return AppTheme.highlight
+            return AppTheme.accent
         case .running:
             return AppTheme.accent
         case .stopping:
             return AppTheme.warning
         case .stopped, .unknown:
-            return .secondary
+            return AppTheme.outline
         case .error:
             return AppTheme.danger
+        }
+    }
+
+    var fillColor: Color {
+        switch self {
+        case .pulling, .creating, .starting, .running:
+            return AppTheme.selectionSurface
+        case .stopping:
+            return AppTheme.warningSurface
+        case .stopped, .unknown:
+            return AppTheme.stoppedSurface
+        case .error:
+            return AppTheme.errorSurface
         }
     }
 
@@ -1772,9 +2376,9 @@ extension WorkloadStatus {
         case .stopping:
             return AppTheme.warning
         case .stopped:
-            return .secondary
+            return AppTheme.outline
         case .unknown:
-            return AppTheme.highlight
+            return AppTheme.outline
         }
     }
 }
@@ -1799,6 +2403,10 @@ extension OCIImageRecord {
 extension String {
     func ifEmpty(_ fallback: String) -> String {
         isEmpty ? fallback : self
+    }
+
+    var shortDigest: String {
+        count > 18 ? String(prefix(18)) + "..." : self
     }
 }
 
