@@ -883,6 +883,7 @@ struct ImageDetailView: View {
 
 struct SettingsDetailView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage("openBoxTerminalDiagnosticsEnabled") private var terminalDiagnosticsEnabled = false
 
     var body: some View {
         ScrollView {
@@ -902,6 +903,16 @@ struct SettingsDetailView: View {
                             .foregroundColor(AppTheme.danger)
                             .textSelection(.enabled)
                     }
+                }
+
+                InfoCard(title: "Terminal Diagnostics") {
+                    Toggle("Write terminal diagnostics logs", isOn: $terminalDiagnosticsEnabled)
+                        .toggleStyle(.switch)
+                        .help("Write PTY, terminal-response, layout, and resize diagnostics to a temporary log file.")
+                    Text("When enabled, each interactive terminal writes a temporary diagnostics log. The active log path appears below the terminal.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
                 }
 
                 InfoCard(title: "Runtime Notes") {
@@ -1322,10 +1333,6 @@ struct InteractiveTerminalBlock: View {
                     .toggleStyle(.switch)
                     .font(.caption2)
                     .help("Allow terminal image protocols such as Kitty, iTerm2, and sixel.")
-                Toggle("Diagnostics", isOn: $diagnosticsEnabled)
-                    .toggleStyle(.switch)
-                    .font(.caption2)
-                    .help("Write PTY, terminal-response, layout, and resize diagnostics to a temporary log file.")
             }
 
             if workload.status == .running, let terminalIO {
