@@ -5,7 +5,9 @@
 //  Created by jianliang on 2026/1/24.
 //
 
+import AppKit
 import Foundation
+import SwiftTerm
 import Testing
 @testable import OpenBox
 
@@ -112,6 +114,51 @@ struct OpenBoxTests {
 
         #expect(first === second)
         #expect(first !== other)
+
+        terminalIO.close()
+        try? output.fileHandleForWriting.close()
+        try? stdin.fileHandleForReading.close()
+    }
+
+    @Test func terminalGridSizeRejectsNonPositiveDimensions() {
+        #expect(TerminalGridSize(columns: 94, rows: 21) != nil)
+        #expect(TerminalGridSize(columns: 0, rows: 21) == nil)
+        #expect(TerminalGridSize(columns: 94, rows: 0) == nil)
+        #expect(TerminalGridSize(columns: -2, rows: 21) == nil)
+    }
+
+    @Test func terminalBackendResizeStateSendsOnlyChangedSizes() throws {
+        let state = TerminalBackendResizeState()
+        let initial = try #require(TerminalGridSize(columns: 94, rows: 21))
+        let changed = try #require(TerminalGridSize(columns: 95, rows: 21))
+
+        #expect(state.shouldSend(initial))
+        #expect(!state.shouldSend(initial))
+        #expect(state.shouldSend(changed))
+        #expect(!state.shouldSend(changed))
+    }
+
+    @MainActor
+    @Test func terminalContainerInstallPreservesCachedTerminalFrameUntilLayout() throws {
+        let stdin = Pipe()
+        let output = Pipe()
+        let terminalIO = InteractiveWorkloadIO(
+            stdinHandle: stdin.fileHandleForWriting,
+            outputHandle: output.fileHandleForReading
+        )
+        let cachedFrame = CGRect(origin: .zero, size: CGSize(width: 720, height: 320))
+        let terminalView = TerminalView(
+            frame: cachedFrame,
+            font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        )
+        let container = TerminalContainerView(
+            frame: CGRect(origin: .zero, size: CGSize(width: 960, height: 320))
+        )
+
+        container.install(terminalView, representedBy: terminalIO)
+
+        #expect(terminalView.frame.size == cachedFrame.size)
+        #expect(terminalView.autoresizingMask.isEmpty)
 
         terminalIO.close()
         try? output.fileHandleForWriting.close()

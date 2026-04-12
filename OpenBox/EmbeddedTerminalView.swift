@@ -33,6 +33,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
     private static let defaultSize = CGSize(width: 960, height: 320)
     private static let terminalViewSessionKey = "OpenBox.EmbeddedTerminalView.TerminalView"
+    private static let backendResizeStateSessionKey = "OpenBox.EmbeddedTerminalView.BackendResizeState"
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -119,6 +120,12 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         }
     }
 
+    private static func backendResizeState(for terminalIO: InteractiveWorkloadIO) -> TerminalBackendResizeState {
+        terminalIO.cachedSessionObject(forKey: backendResizeStateSessionKey) {
+            TerminalBackendResizeState()
+        }
+    }
+
     private static func configure(
         _ terminalView: TerminalView,
         coordinator: Coordinator,
@@ -132,7 +139,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         terminalView.caretViewTracksFocus = true
         terminalView.backspaceSendsControlH = false
         terminalView.allowMouseReporting = true
-        terminalView.autoresizingMask = [.width, .height]
+        terminalView.autoresizingMask = []
     }
 
     final class Coordinator: NSObject, TerminalViewDelegate, @unchecked Sendable {
@@ -141,8 +148,9 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
         private weak var terminalView: TerminalView?
         private var terminalIO: InteractiveWorkloadIO?
+        private var backendResizeState: TerminalBackendResizeState?
         private var outputHandlerID: UUID?
-        private var lastSize: (columns: Int, rows: Int)?
+        private var lastSize: TerminalGridSize?
         private var allowsInlineGraphics: Bool
         private let outputImageFilter = TerminalOutputImageFilter()
         private let startupFrameNormalizer = TerminalStartupFrameNormalizer()
@@ -204,6 +212,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
                 diagnosticLogger?.event("clearing previous output handler id=\(outputHandlerID?.uuidString ?? "nil")")
                 self.terminalIO?.clearOutputHandler(id: outputHandlerID)
                 self.terminalIO = terminalIO
+                backendResizeState = EmbeddedTerminalView.backendResizeState(for: terminalIO)
                 outputHandlerID = nil
             }
             if !isSameIO || !isSameView {
@@ -249,6 +258,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             diagnosticLogger?.event("unbind outputHandlerID=\(outputHandlerID?.uuidString ?? "nil")")
             terminalIO?.clearOutputHandler(id: outputHandlerID)
             terminalIO = nil
+            backendResizeState = nil
             outputHandlerID = nil
             terminalView = nil
             outputImageFilter.reset()
@@ -284,6 +294,14 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             diagnosticLogger?.event("sizeChanged cols=\(newCols) rows=\(newRows) \(Self.layoutSummary(for: source))")
+            guard terminalView === source else {
+                diagnosticLogger?.event("resize sync ignored because terminal view is not bound")
+                return
+            }
+            guard source.bounds.width > 0, source.bounds.height > 0, newCols > 0, newRows > 0 else {
+                diagnosticLogger?.event("resize sync ignored invalid layout cols=\(newCols) rows=\(newRows)")
+                return
+            }
             synchronizeSize(columns: newCols, rows: newRows, force: false)
         }
 
@@ -306,13 +324,29 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         }
 
         private func synchronizeSize(columns newCols: Int, rows newRows: Int, force: Bool) {
-            let columns = max(1, newCols)
-            let rows = max(1, newRows)
-            guard force || lastSize?.columns != columns || lastSize?.rows != rows else { return }
+            guard let size = TerminalGridSize(columns: newCols, rows: newRows) else {
+                diagnosticLogger?.event("resize sync ignored invalid size cols=\(newCols) rows=\(newRows)")
+                return
+            }
 
-            diagnosticLogger?.event("resize sync force=\(force) previous=\(lastSize?.columns ?? 0)x\(lastSize?.rows ?? 0) next=\(columns)x\(rows)")
-            lastSize = (columns, rows)
-            onResize(columns, rows)
+            guard force || lastSize != size else { return }
+
+            let previousSize = lastSize
+            lastSize = size
+            guard let terminalIO else {
+                diagnosticLogger?.event("resize sync ignored because terminal IO is not bound next=\(size)")
+                return
+            }
+
+            let resizeState = backendResizeState ?? EmbeddedTerminalView.backendResizeState(for: terminalIO)
+            backendResizeState = resizeState
+            guard resizeState.shouldSend(size) else {
+                diagnosticLogger?.event("resize sync skipped duplicate backend size next=\(size)")
+                return
+            }
+
+            diagnosticLogger?.event("resize sync force=\(force) previous=\(previousSize?.description ?? "0x0") next=\(size)")
+            onResize(size.columns, size.rows)
         }
 
         private static func diagnosticSummary(for diagnostics: TerminalDiagnosticsContext?) -> String {
@@ -378,14 +412,13 @@ final class TerminalContainerView: NSView {
     func install(_ terminalView: TerminalView, representedBy terminalIO: InteractiveWorkloadIO) {
         self.terminalView?.removeFromSuperview()
         terminalView.removeFromSuperview()
+        terminalView.autoresizingMask = []
         self.terminalView = terminalView
         representedTerminalIO = terminalIO
         configureEmbeddedTerminalCapabilities(terminalView, allowsInlineGraphics: allowsInlineGraphics)
         isReadyForIO = false
-        if bounds.width > 0, bounds.height > 0 {
-            terminalView.frame = bounds
-        }
         addSubview(terminalView)
+        invalidateTerminalDisplay(terminalView)
         needsLayout = true
     }
 
@@ -430,9 +463,17 @@ final class TerminalContainerView: NSView {
     private func prepareTerminalLayout(_ terminalView: TerminalView) {
         configureEmbeddedTerminalCapabilities(terminalView, allowsInlineGraphics: allowsInlineGraphics)
         terminalView.setFrameOrigin(.zero)
-        terminalView.setFrameSize(bounds.size)
-        terminalView.needsDisplay = true
+        if terminalView.frame.size != bounds.size {
+            terminalView.setFrameSize(bounds.size)
+        }
+        invalidateTerminalDisplay(terminalView)
         terminalView.layoutSubtreeIfNeeded()
+    }
+
+    private func invalidateTerminalDisplay(_ terminalView: TerminalView) {
+        guard terminalView.bounds.width > 0, terminalView.bounds.height > 0 else { return }
+        terminalView.setNeedsDisplay(terminalView.bounds)
+        terminalView.layer?.setNeedsDisplay()
     }
 
     private func focusTerminalIfPossible() {
@@ -519,6 +560,34 @@ final class TerminalDiagnosticLogger {
         }
 
         return output
+    }
+}
+
+struct TerminalGridSize: Equatable, CustomStringConvertible {
+    let columns: Int
+    let rows: Int
+
+    init?(columns: Int, rows: Int) {
+        guard columns > 0, rows > 0 else { return nil }
+        self.columns = columns
+        self.rows = rows
+    }
+
+    var description: String {
+        "\(columns)x\(rows)"
+    }
+}
+
+final class TerminalBackendResizeState {
+    private let lock = NSLock()
+    private var lastSentSize: TerminalGridSize?
+
+    func shouldSend(_ size: TerminalGridSize) -> Bool {
+        lock.withLock {
+            guard lastSentSize != size else { return false }
+            lastSentSize = size
+            return true
+        }
     }
 }
 
