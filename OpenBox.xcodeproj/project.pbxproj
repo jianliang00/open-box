@@ -7,8 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */; };
 		70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A41 /* ContainerKit */; };
+		70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */; };
+		70B2C3D4E5F60718293A50 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 70B2C3D4E5F60718293A52 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +60,7 @@
 			files = (
 				70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */,
 				70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */,
+				70B2C3D4E5F60718293A50 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -121,6 +123,7 @@
 			packageProductDependencies = (
 				70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */,
 				70A1B2C3D4E5F60718293A41 /* ContainerKit */,
+				70B2C3D4E5F60718293A52 /* SwiftTerm */,
 			);
 			productName = OpenBox;
 			productReference = 40992CDE2F24F5AB008AEFEB /* OpenBox.app */;
@@ -206,6 +209,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */,
+				70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 40992CDF2F24F5AB008AEFEB /* Products */;
@@ -279,17 +283,6 @@
 			targetProxy = 40992CF92F24F5AD008AEFEB /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jianliang00/container";
-			requirement = {
-				kind = exactVersion;
-				version = 0.0.3;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		40992D002F24F5AD008AEFEB /* Debug */ = {
@@ -578,19 +571,6 @@
 		};
 /* End XCBuildConfiguration section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
-			productName = ContainerAPIClient;
-		};
-		70A1B2C3D4E5F60718293A41 /* ContainerKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
-			productName = ContainerKit;
-		};
-/* End XCSwiftPackageProductDependency section */
-
 /* Begin XCConfigurationList section */
 		40992CD92F24F5AB008AEFEB /* Build configuration list for PBXProject "OpenBox" */ = {
 			isa = XCConfigurationList;
@@ -629,6 +609,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jianliang00/container";
+			requirement = {
+				kind = exactVersion;
+				version = 0.0.3;
+			};
+		};
+		70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = exactVersion;
+				version = 1.11.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		70A1B2C3D4E5F60718293A41 /* ContainerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			productName = ContainerKit;
+		};
+		70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			productName = ContainerAPIClient;
+		};
+		70B2C3D4E5F60718293A52 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 40992CD62F24F5AB008AEFEB /* Project object */;
 }

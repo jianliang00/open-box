@@ -5,8 +5,26 @@
 //  Created by jianliang on 2026/1/24.
 //
 
+import Foundation
 import Testing
 @testable import OpenBox
+
+private final class LockedData: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ newData: Data) {
+        lock.withLock {
+            data.append(newData)
+        }
+    }
+
+    var value: Data {
+        lock.withLock {
+            data
+        }
+    }
+}
 
 struct OpenBoxTests {
 
@@ -27,5 +45,263 @@ struct OpenBoxTests {
                 options: .regularExpression
             ) != nil
         )
+    }
+
+    @Test func interactiveTerminalSendsInputBytesUnchanged() throws {
+        let stdin = Pipe()
+        let output = Pipe()
+        let terminalIO = InteractiveWorkloadIO(
+            stdinHandle: stdin.fileHandleForWriting,
+            outputHandle: output.fileHandleForReading
+        )
+
+        try terminalIO.send(ArraySlice<UInt8>([0x61, 0x08, 0x7f, 0x0d]))
+        terminalIO.close()
+
+        let data = stdin.fileHandleForReading.readDataToEndOfFile()
+        #expect([UInt8](data) == [0x61, 0x08, 0x7f, 0x0d])
+        try? output.fileHandleForWriting.close()
+        try? stdin.fileHandleForReading.close()
+    }
+
+    @Test func staleTerminalOutputHandlerTokenDoesNotClearCurrentHandler() throws {
+        let stdin = Pipe()
+        let output = Pipe()
+        let terminalIO = InteractiveWorkloadIO(
+            stdinHandle: stdin.fileHandleForWriting,
+            outputHandle: output.fileHandleForReading
+        )
+        let receivedSignal = DispatchSemaphore(value: 0)
+        let received = LockedData()
+
+        let staleHandlerID = terminalIO.setOutputHandler { _ in }
+        _ = terminalIO.setOutputHandler { data in
+            received.append(data)
+            receivedSignal.signal()
+        }
+
+        terminalIO.clearOutputHandler(id: staleHandlerID)
+        try output.fileHandleForWriting.write(contentsOf: Data("ok".utf8))
+
+        let result = receivedSignal.wait(timeout: .now() + 1)
+        #expect(result == .success)
+        #expect(received.value == Data("ok".utf8))
+
+        terminalIO.close()
+        try? output.fileHandleForWriting.close()
+        try? stdin.fileHandleForReading.close()
+    }
+
+    @Test func interactiveTerminalCachesSessionObjects() throws {
+        let stdin = Pipe()
+        let output = Pipe()
+        let terminalIO = InteractiveWorkloadIO(
+            stdinHandle: stdin.fileHandleForWriting,
+            outputHandle: output.fileHandleForReading
+        )
+
+        let first: NSObject = terminalIO.cachedSessionObject(forKey: "terminal-view") {
+            NSObject()
+        }
+        let second: NSObject = terminalIO.cachedSessionObject(forKey: "terminal-view") {
+            NSObject()
+        }
+        let other: NSObject = terminalIO.cachedSessionObject(forKey: "other") {
+            NSObject()
+        }
+
+        #expect(first === second)
+        #expect(first !== other)
+
+        terminalIO.close()
+        try? output.fileHandleForWriting.close()
+        try? stdin.fileHandleForReading.close()
+    }
+
+    @Test func terminalOutputImageFilterStripsKittyGraphicsAcrossChunks() {
+        let escape: UInt8 = 0x1b
+        let filter = TerminalOutputImageFilter()
+        let firstChunk = [UInt8(ascii: "a"), escape, UInt8(ascii: "_")]
+            + Array("Gf=100,s=1,v=1;payload".utf8)
+        let secondChunk = [escape, UInt8(ascii: "\\"), UInt8(ascii: "b")]
+
+        #expect(filter.filter(firstChunk) == [UInt8(ascii: "a")])
+        #expect(filter.filter(secondChunk) == [UInt8(ascii: "b")])
+    }
+
+    @Test func terminalOutputImageFilterStripsITermInlineImageAcrossChunks() {
+        let escape: UInt8 = 0x1b
+        let filter = TerminalOutputImageFilter()
+        let firstChunk = [UInt8(ascii: "a"), escape, UInt8(ascii: "]")]
+            + Array("1337;File=inline=1:abcdef".utf8)
+        let secondChunk = [UInt8(ascii: "\u{07}"), UInt8(ascii: "b")]
+
+        #expect(filter.filter(firstChunk) == [UInt8(ascii: "a")])
+        #expect(filter.filter(secondChunk) == [UInt8(ascii: "b")])
+    }
+
+    @Test func terminalOutputImageFilterStripsSixelButPreservesDCSQuery() {
+        let escape: UInt8 = 0x1b
+        let sixelFilter = TerminalOutputImageFilter()
+        let sixel = [UInt8(ascii: "a"), escape, UInt8(ascii: "P")]
+            + Array("0;0;0q????".utf8)
+            + [escape, UInt8(ascii: "\\"), UInt8(ascii: "b")]
+
+        #expect(sixelFilter.filter(sixel) == [UInt8(ascii: "a"), UInt8(ascii: "b")])
+
+        let queryFilter = TerminalOutputImageFilter()
+        let dcsQuery = [escape, UInt8(ascii: "P")] + Array("$qq".utf8) + [escape, UInt8(ascii: "\\")]
+
+        #expect(queryFilter.filter(dcsQuery) == dcsQuery)
+    }
+
+    @Test func terminalOutputImageFilterPreservesDCSAndRegularTerminalSequences() {
+        let escape: UInt8 = 0x1b
+        let filter = TerminalOutputImageFilter()
+        let dcsQuery = [escape, UInt8(ascii: "P")] + Array("$qq".utf8) + [escape, UInt8(ascii: "\\")]
+        let titleSequence = [escape, UInt8(ascii: "]")]
+            + Array("0;OpenBox".utf8)
+            + [UInt8(ascii: "\u{07}")]
+        let colorSequence = [escape, UInt8(ascii: "[")] + Array("31m".utf8)
+        let bytes = [UInt8(ascii: "a")] + dcsQuery + titleSequence + colorSequence + [UInt8(ascii: "b")]
+
+        #expect(filter.filter(bytes) == bytes)
+    }
+
+    @Test func terminalStartupFrameNormalizerClearsBeforeFirstSynchronizedTopRepaint() {
+        let normalizer = TerminalStartupFrameNormalizer()
+        normalizer.observeInput(Array("\r".utf8))
+
+        let frame = Array("\u{1B}[?2026h\u{1B}[1;55H\u{1B}[0m\u{1B}[49m\u{1B}[KWelcome\u{1B}[?2026l".utf8)
+        let result = normalizer.normalize(frame)
+
+        #expect(result.action == .prependedClear)
+        #expect(result.bytes.starts(with: Array("\u{1B}[2J\u{1B}[H".utf8)))
+        #expect(result.bytes.suffix(frame.count).elementsEqual(frame))
+    }
+
+    @Test func terminalStartupFrameNormalizerPreservesAlreadyClearedFrame() {
+        let normalizer = TerminalStartupFrameNormalizer()
+        normalizer.observeInput(Array("\r".utf8))
+
+        let frame = Array("\u{1B}[?2026h\u{1B}[2J\u{1B}[HWelcome\u{1B}[?2026l".utf8)
+        let result = normalizer.normalize(frame)
+
+        #expect(result.action == .unchanged)
+        #expect(result.bytes == frame)
+    }
+
+    @Test func terminalStartupFrameNormalizerPreservesRegularCommandOutput() {
+        let normalizer = TerminalStartupFrameNormalizer()
+        normalizer.observeInput(Array("\r".utf8))
+
+        let output = Array("Applications\nLibrary\nSystem\n".utf8)
+        let result = normalizer.normalize(output)
+
+        #expect(result.action == .unchanged)
+        #expect(result.bytes == output)
+    }
+
+    @Test func terminalStartupFrameNormalizerBuffersSplitSynchronizedPrefix() {
+        let normalizer = TerminalStartupFrameNormalizer()
+        normalizer.observeInput(Array("\r".utf8))
+
+        let prefix = Array("\u{1B}[?2026h".utf8)
+        let prefixResult = normalizer.normalize(prefix)
+        #expect(prefixResult.action == .buffered)
+        #expect(prefixResult.bytes.isEmpty)
+
+        let body = Array("\u{1B}[2;2HWelcome\u{1B}[?2026l".utf8)
+        let bodyResult = normalizer.normalize(body)
+
+        #expect(bodyResult.action == .prependedClear)
+        #expect(bodyResult.bytes.starts(with: Array("\u{1B}[2J\u{1B}[H".utf8)))
+        #expect(bodyResult.bytes.suffix(prefix.count + body.count).elementsEqual(prefix + body))
+    }
+
+    @Test func terminalResponseFilterStripsKittyGraphicsCapabilityResponse() {
+        let escape: UInt8 = 0x1b
+        let bytes = [UInt8(ascii: "a"), escape, UInt8(ascii: "_")]
+            + Array("Gi=1;OK".utf8)
+            + [escape, UInt8(ascii: "\\"), UInt8(ascii: "b")]
+
+        #expect(
+            TerminalResponseFilter.removingKittyGraphicsResponses(from: bytes[...]) == [
+                UInt8(ascii: "a"),
+                UInt8(ascii: "b")
+            ]
+        )
+    }
+
+    @Test func terminalResponseFilterPreservesEscapeKeyAndRegularTerminalInput() {
+        let escape: UInt8 = 0x1b
+        let escapeKey = [escape]
+        let cursorLeft = [escape, UInt8(ascii: "[")] + Array("D".utf8)
+        let titleSequence = [escape, UInt8(ascii: "]")]
+            + Array("0;OpenBox".utf8)
+            + [UInt8(ascii: "\u{07}")]
+
+        #expect(TerminalResponseFilter.removingKittyGraphicsResponses(from: escapeKey[...]) == escapeKey)
+        #expect(
+            TerminalResponseFilter.removingKittyGraphicsResponses(from: cursorLeft[...]) == cursorLeft
+        )
+        #expect(
+            TerminalResponseFilter.removingKittyGraphicsResponses(from: titleSequence[...]) == titleSequence
+        )
+    }
+
+    @Test func terminalResponseFilterPassesIncompleteKittyResponseThrough() {
+        let escape: UInt8 = 0x1b
+        let bytes = [escape, UInt8(ascii: "_")] + Array("Gi=1;OK".utf8)
+
+        #expect(TerminalResponseFilter.removingKittyGraphicsResponses(from: bytes[...]) == bytes)
+    }
+
+    @Test func interactiveTerminalEnvironmentPreservesBasePathAndAddsTerminalDefaults() {
+        let environment = ContainerSDKService.makeInteractiveTerminalEnvironment(
+            baseEnvironment: [
+                "PATH=/custom/bin:/usr/bin",
+                "HOME=/Users/admin"
+            ],
+            shellPath: "/bin/zsh"
+        )
+        let values = environmentDictionary(environment)
+
+        #expect(values["PATH"]?.hasPrefix("/custom/bin:/usr/bin") == true)
+        #expect(values["PATH"]?.contains("/opt/homebrew/bin") == true)
+        #expect(values["TERM"] == "xterm-256color")
+        #expect(values["COLORTERM"] == "truecolor")
+        #expect(values["LANG"] == "en_US.UTF-8")
+        #expect(values["LC_CTYPE"] == "en_US.UTF-8")
+        #expect(values["SHELL"] == "/bin/zsh")
+        #expect(values["USER"] == "admin")
+        #expect(values["LOGNAME"] == "admin")
+    }
+
+    @Test func interactiveTerminalEnvironmentOverridesNonUTF8Locale() {
+        let environment = ContainerSDKService.makeInteractiveTerminalEnvironment(
+            baseEnvironment: [
+                "PATH=/usr/bin",
+                "LANG=C",
+                "LC_ALL=C"
+            ],
+            shellPath: "/bin/zsh"
+        )
+        let values = environmentDictionary(environment)
+
+        #expect(values["LANG"] == "en_US.UTF-8")
+        #expect(values["LC_ALL"] == "en_US.UTF-8")
+        #expect(values["LC_CTYPE"] == "en_US.UTF-8")
+    }
+
+    private func environmentDictionary(_ environment: [String]) -> [String: String] {
+        var values: [String: String] = [:]
+        for entry in environment {
+            guard let separator = entry.firstIndex(of: "=") else { continue }
+            let key = String(entry[..<separator])
+            let value = String(entry[entry.index(after: separator)...])
+            values[key] = value
+        }
+        return values
     }
 }

@@ -539,29 +539,34 @@ struct SandboxDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if !appState.systemStatus.isAvailable {
-                    ServiceUnavailableView(message: appState.systemStatus.lastError)
-                }
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if !appState.systemStatus.isAvailable {
+                        ServiceUnavailableView(message: appState.systemStatus.lastError)
+                    }
 
-                if let selectedWorkload {
-                    WorkloadDetailView(
-                        sandbox: sandbox,
-                        workload: selectedWorkload
-                    )
-                } else {
-                    SandboxSummaryCard(
-                        sandbox: sandbox,
-                        detail: detail,
-                        onRunCommand: {
-                            onRunCommand(sandbox)
-                        }
-                    )
+                    if let selectedWorkload {
+                        WorkloadDetailView(
+                            sandbox: sandbox,
+                            workload: selectedWorkload,
+                            viewportHeight: proxy.size.height
+                        )
+                    } else {
+                        SandboxSummaryCard(
+                            sandbox: sandbox,
+                            detail: detail,
+                            onRunCommand: {
+                                onRunCommand(sandbox)
+                            }
+                        )
+                    }
                 }
+                .padding(24)
             }
-            .padding(24)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: runningWorkloadIDs) {
             guard !runningWorkloadIDs.isEmpty else { return }
             while !Task.isCancelled {
@@ -743,6 +748,7 @@ struct WorkloadDetailView: View {
 
     let sandbox: SandboxRecord
     let workload: WorkloadRecord
+    let viewportHeight: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -785,6 +791,14 @@ struct WorkloadDetailView: View {
             .background(AppTheme.panel)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
+            if workload.isTerminal {
+                InteractiveTerminalBlock(
+                    sandbox: sandbox,
+                    workload: workload,
+                    terminalHeight: terminalHeight
+                )
+            }
+
             InfoCard(title: "Basic Info") {
                 PropertyRow(label: "Workload ID", value: workload.id)
                 PropertyRow(label: "Working Dir", value: workload.workingDirectory)
@@ -799,7 +813,14 @@ struct WorkloadDetailView: View {
                 LiveLogBlock(title: "STDERR", path: workload.stderrLogPath, isFollowing: workload.status == .running)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var terminalHeight: CGFloat {
+        guard workload.isTerminal else { return 0 }
+
+        let availableAfterHeader = viewportHeight - 280
+        return min(320, max(180, availableAfterHeader))
     }
 }
 
@@ -1031,17 +1052,34 @@ struct RunWorkloadSheet: View {
 
     let sandbox: SandboxRecord
 
+    @State private var mode: WorkloadRunMode = .command
     @State private var shellCommand: String
+    @State private var shellPath: String
     @State private var workingDirectory: String
 
     init(sandbox: SandboxRecord) {
         self.sandbox = sandbox
         _shellCommand = State(initialValue: sandbox.isMacOSGuest ? "sw_vers" : "uname -a")
+        _shellPath = State(initialValue: sandbox.shellPath)
         _workingDirectory = State(initialValue: sandbox.workspacePath == nil ? "/" : sandbox.guestWorkspacePath)
     }
 
     private var canSubmit: Bool {
-        !shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        switch mode {
+        case .command:
+            return !shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .interactiveShell:
+            return sandbox.isMacOSGuest && !shellPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var primaryActionTitle: String {
+        switch mode {
+        case .command:
+            return "Run"
+        case .interactiveShell:
+            return "Start Shell"
+        }
     }
 
     var body: some View {
@@ -1050,14 +1088,31 @@ struct RunWorkloadSheet: View {
                 .font(AppTheme.titleFont)
 
             Form {
+                Picker("Mode", selection: $mode) {
+                    ForEach(WorkloadRunMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 Text("Sandbox: \(sandbox.name)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("Shell command", text: $shellCommand)
-                TextField("Working directory", text: $workingDirectory)
-                Text("Commands run as `\(sandbox.shellPath) -lc <command>` inside the sandbox.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+
+                switch mode {
+                case .command:
+                    TextField("Shell command", text: $shellCommand)
+                    TextField("Working directory", text: $workingDirectory)
+                    Text("Commands run as `\(sandbox.shellPath) -lc <command>` inside the sandbox.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                case .interactiveShell:
+                    TextField("Shell executable", text: $shellPath)
+                    TextField("Working directory", text: $workingDirectory)
+                    Text(shellModeHelpText)
+                        .font(.caption)
+                        .foregroundColor(sandbox.isMacOSGuest ? .secondary : AppTheme.danger)
+                }
             }
 
             HStack {
@@ -1065,10 +1120,12 @@ struct RunWorkloadSheet: View {
                 Button("Cancel") {
                     dismiss()
                 }
-                Button("Run") {
+                Button(primaryActionTitle) {
                     let submittedDraft = WorkloadDraft(
                         sandboxID: sandbox.id,
+                        mode: mode,
                         shellCommand: shellCommand,
+                        shellPath: shellPath,
                         workingDirectory: workingDirectory
                     )
                     dismiss()
@@ -1078,10 +1135,18 @@ struct RunWorkloadSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!canSubmit)
+                .accessibilityLabel(primaryActionTitle)
             }
         }
         .padding(24)
         .frame(width: 560)
+    }
+
+    private var shellModeHelpText: String {
+        guard sandbox.isMacOSGuest else {
+            return "Interactive shell workloads are currently supported for macOS sandboxes only."
+        }
+        return "Starts a TTY shell and opens it in the workload detail terminal after launch."
     }
 }
 
@@ -1221,6 +1286,121 @@ struct PathBlock: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+}
+
+struct InteractiveTerminalBlock: View {
+    @EnvironmentObject private var appState: AppState
+    @AppStorage("openBoxTerminalAllowsInlineGraphics") private var allowsInlineGraphics = false
+    @AppStorage("openBoxTerminalDiagnosticsEnabled") private var diagnosticsEnabled = false
+
+    let sandbox: SandboxRecord
+    let workload: WorkloadRecord
+    let terminalHeight: CGFloat
+
+    private var terminalIO: InteractiveWorkloadIO? {
+        appState.interactiveTerminal(sandboxID: sandbox.id, workloadID: workload.id)
+    }
+
+    private var diagnosticsContext: TerminalDiagnosticsContext {
+        TerminalDiagnosticsContext(sandboxID: sandbox.id, workloadID: workload.id)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("Terminal")
+                    .font(AppTheme.sectionTitleFont)
+                if workload.status == .running {
+                    Label("Live", systemImage: "record.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.accent)
+                        .labelStyle(.titleAndIcon)
+                }
+                Spacer(minLength: 12)
+                Toggle("Inline graphics", isOn: $allowsInlineGraphics)
+                    .toggleStyle(.switch)
+                    .font(.caption2)
+                    .help("Allow terminal image protocols such as Kitty, iTerm2, and sixel.")
+                Toggle("Diagnostics", isOn: $diagnosticsEnabled)
+                    .toggleStyle(.switch)
+                    .font(.caption2)
+                    .help("Write PTY, terminal-response, layout, and resize diagnostics to a temporary log file.")
+            }
+
+            if workload.status == .running, let terminalIO {
+                EmbeddedTerminalView(
+                    terminalIO: terminalIO,
+                    allowsInlineGraphics: allowsInlineGraphics,
+                    diagnostics: diagnosticsEnabled ? diagnosticsContext : nil,
+                    onResize: { columns, rows in
+                        appState.resizeInteractiveTerminal(
+                            sandboxID: sandbox.id,
+                            workloadID: workload.id,
+                            columns: columns,
+                            rows: rows
+                        )
+                    },
+                    onError: { error in
+                        appState.showInteractiveTerminalError(error)
+                    }
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: terminalHeight)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
+                        .allowsHitTesting(false)
+                )
+            } else {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
+                    .background(AppTheme.background.opacity(0.82))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    )
+            }
+
+            Text(footerText)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .padding(18)
+        .background(AppTheme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var statusText: String {
+        if workload.status != .running {
+            return "The shell is no longer running."
+        }
+        return "Terminal I/O is only available for shells started in this app session."
+    }
+
+    private var footerText: String {
+        let baseText: String
+        if workload.status == .running, terminalIO != nil {
+            if allowsInlineGraphics {
+                baseText = "Click the terminal and type normally. Inline graphics are allowed."
+            } else {
+                baseText = "Click the terminal and type normally. Inline graphics are hidden for text stability."
+            }
+        } else {
+            baseText = "Start a new interactive shell to use direct keyboard input."
+        }
+
+        if diagnosticsEnabled {
+            return "\(baseText) Diagnostics: \(diagnosticsContext.logURL.path)"
+        }
+        return baseText
     }
 }
 

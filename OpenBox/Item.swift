@@ -154,6 +154,7 @@ struct WorkloadRecord: Identifiable, Hashable {
     var startedAt: Date?
     var exitedAt: Date?
     var isImageBacked: Bool
+    var isTerminal: Bool
 }
 
 struct SandboxDetail: Hashable {
@@ -197,9 +198,27 @@ struct ImagePullDraft: Hashable {
     var reference: String = ""
 }
 
+enum WorkloadRunMode: String, CaseIterable, Identifiable, Hashable {
+    case command
+    case interactiveShell
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .command:
+            return "Command"
+        case .interactiveShell:
+            return "Interactive Shell"
+        }
+    }
+}
+
 struct WorkloadDraft: Hashable {
     var sandboxID: String
+    var mode: WorkloadRunMode
     var shellCommand: String
+    var shellPath: String
     var workingDirectory: String
 }
 
@@ -219,6 +238,7 @@ struct AppBanner: Identifiable, Hashable {
 final class AppState: ObservableObject {
     @Published var selectedSidebar: SidebarSection = .sandboxes
     @Published var selectedSandboxID: String?
+    @Published var selectedWorkloadID: String?
     @Published var selectedImageReference: String?
     @Published var systemStatus: SystemStatus = .unavailable
     @Published var images: [OCIImageRecord] = []
@@ -228,6 +248,7 @@ final class AppState: ObservableObject {
     @Published var isRefreshing = false
     @Published var isMutating = false
     @Published var activityMessage: String?
+    @Published private var interactiveTerminalIO: [String: InteractiveWorkloadIO] = [:]
 
     private let service: ContainerSDKService
     private var hasLoadedOnce = false
@@ -249,6 +270,11 @@ final class AppState: ObservableObject {
     var selectedSandboxDetail: SandboxDetail? {
         guard let selectedSandboxID else { return nil }
         return sandboxDetails[selectedSandboxID]
+    }
+
+    var selectedWorkload: WorkloadRecord? {
+        guard let selectedWorkloadID else { return nil }
+        return selectedSandboxDetail?.workloads.first { $0.id == selectedWorkloadID }
     }
 
     func clearBanner() {
@@ -281,6 +307,7 @@ final class AppState: ObservableObject {
             sandboxes = []
             sandboxDetails = [:]
             reconcileSelections()
+            reconcileInteractiveTerminalIO()
             return
         }
 
@@ -302,6 +329,7 @@ final class AppState: ObservableObject {
         }
 
         reconcileSelections()
+        reconcileInteractiveTerminalIO()
     }
 
     func refreshSandbox(id: String) async {
@@ -316,6 +344,7 @@ final class AppState: ObservableObject {
             }
             sandboxDetails[sandbox.record.id] = sandbox.detail
             reconcileSelections()
+            reconcileInteractiveTerminalIO()
         } catch {
             await refreshAll()
         }
@@ -382,6 +411,7 @@ final class AppState: ObservableObject {
             await self.refreshAll()
             self.selectedSidebar = .sandboxes
             self.selectedSandboxID = sandboxID
+            self.selectedWorkloadID = nil
         }
     }
 
@@ -411,6 +441,7 @@ final class AppState: ObservableObject {
             try await service.removeSandbox(id: sandboxID)
             if self.selectedSandboxID == sandboxID {
                 self.selectedSandboxID = nil
+                self.selectedWorkloadID = nil
             }
             await self.refreshAll()
         }
@@ -418,8 +449,9 @@ final class AppState: ObservableObject {
 
     func runWorkload(_ draft: WorkloadDraft) {
         let trimmedCommand = draft.shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedShellPath = draft.shellPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedWorkingDirectory = draft.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else {
+        if draft.mode == .command, trimmedCommand.isEmpty {
             banner = AppBanner(
                 title: "Missing command",
                 message: "Enter a shell command to run inside the sandbox.",
@@ -427,24 +459,45 @@ final class AppState: ObservableObject {
             )
             return
         }
+        if draft.mode == .interactiveShell, trimmedShellPath.isEmpty {
+            banner = AppBanner(
+                title: "Missing shell",
+                message: "Enter a shell executable path like /bin/zsh or /bin/bash.",
+                style: .error
+            )
+            return
+        }
 
         let normalizedDraft = WorkloadDraft(
             sandboxID: draft.sandboxID,
+            mode: draft.mode,
             shellCommand: trimmedCommand,
+            shellPath: trimmedShellPath,
             workingDirectory: trimmedWorkingDirectory.isEmpty ? "/" : trimmedWorkingDirectory
         )
 
-        runMutation(activity: "Running command in \(draft.sandboxID)") { [service] in
-            _ = try await service.runWorkload(from: normalizedDraft)
+        let activity = draft.mode == .interactiveShell
+            ? "Starting shell in \(draft.sandboxID)"
+            : "Running command in \(draft.sandboxID)"
+
+        runMutation(activity: activity) { [service] in
+            let launch = try await service.runWorkload(from: normalizedDraft)
+            if let terminalIO = launch.terminalIO {
+                self.interactiveTerminalIO[self.interactiveTerminalKey(sandboxID: draft.sandboxID, workloadID: launch.workloadID)] = terminalIO
+            }
             await self.refreshAll()
             self.selectedSidebar = .sandboxes
             self.selectedSandboxID = draft.sandboxID
+            self.selectedWorkloadID = self.sandboxDetails[draft.sandboxID]?.workloads.contains {
+                $0.id == launch.workloadID
+            } == true ? launch.workloadID : nil
         }
     }
 
     func stopWorkload(sandboxID: String, workloadID: String) {
         runMutation(activity: "Stopping workload \(workloadID)") { [service] in
             try await service.stopWorkload(sandboxID: sandboxID, workloadID: workloadID)
+            self.closeInteractiveTerminalIO(sandboxID: sandboxID, workloadID: workloadID)
             await self.refreshAll()
         }
     }
@@ -452,8 +505,37 @@ final class AppState: ObservableObject {
     func removeWorkload(sandboxID: String, workloadID: String) {
         runMutation(activity: "Removing workload \(workloadID)") { [service] in
             try await service.removeWorkload(sandboxID: sandboxID, workloadID: workloadID)
+            self.closeInteractiveTerminalIO(sandboxID: sandboxID, workloadID: workloadID)
+            if self.selectedSandboxID == sandboxID, self.selectedWorkloadID == workloadID {
+                self.selectedWorkloadID = nil
+            }
             await self.refreshAll()
         }
+    }
+
+    func interactiveTerminal(sandboxID: String, workloadID: String) -> InteractiveWorkloadIO? {
+        interactiveTerminalIO[interactiveTerminalKey(sandboxID: sandboxID, workloadID: workloadID)]
+    }
+
+    func resizeInteractiveTerminal(sandboxID: String, workloadID: String, columns: Int, rows: Int) {
+        guard columns > 0, rows > 0 else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await service.resizeTerminal(
+                    sandboxID: sandboxID,
+                    workloadID: workloadID,
+                    columns: columns,
+                    rows: rows
+                )
+            } catch {
+                self.showError(title: "Failed to resize terminal", error: error)
+            }
+        }
+    }
+
+    func showInteractiveTerminalError(_ error: Error) {
+        showError(title: "Terminal I/O failed", error: error)
     }
 
     private func runMutation(
@@ -490,6 +572,7 @@ final class AppState: ObservableObject {
     private func reconcileSelections() {
         if let selectedSandboxID, !sandboxes.contains(where: { $0.id == selectedSandboxID }) {
             self.selectedSandboxID = nil
+            self.selectedWorkloadID = nil
         }
         if let selectedImageReference, !images.contains(where: { $0.reference == selectedImageReference }) {
             self.selectedImageReference = nil
@@ -497,9 +580,51 @@ final class AppState: ObservableObject {
         if selectedSandboxID == nil {
             selectedSandboxID = sandboxes.first?.id
         }
+        if let selectedWorkloadID,
+           selectedSandboxDetail?.workloads.contains(where: { $0.id == selectedWorkloadID }) != true {
+            self.selectedWorkloadID = nil
+        }
         if selectedImageReference == nil {
             selectedImageReference = images.first?.reference
         }
+    }
+
+    private func reconcileInteractiveTerminalIO() {
+        let knownSandboxIDs = Set(sandboxes.map(\.id))
+
+        for key in Array(interactiveTerminalIO.keys) {
+            guard let ids = interactiveTerminalIDs(from: key),
+                  knownSandboxIDs.contains(ids.sandboxID) else {
+                interactiveTerminalIO.removeValue(forKey: key)?.close()
+                continue
+            }
+
+            guard let detail = sandboxDetails[ids.sandboxID],
+                  let workload = detail.workloads.first(where: { $0.id == ids.workloadID }) else {
+                continue
+            }
+
+            if workload.status != .running {
+                interactiveTerminalIO.removeValue(forKey: key)?.close()
+            }
+        }
+    }
+
+    private func closeInteractiveTerminalIO(sandboxID: String, workloadID: String) {
+        interactiveTerminalIO.removeValue(forKey: interactiveTerminalKey(sandboxID: sandboxID, workloadID: workloadID))?.close()
+    }
+
+    private func interactiveTerminalKey(sandboxID: String, workloadID: String) -> String {
+        "\(sandboxID)|\(workloadID)"
+    }
+
+    private func interactiveTerminalIDs(from key: String) -> (sandboxID: String, workloadID: String)? {
+        guard let separator = key.firstIndex(of: "|") else { return nil }
+        let workloadStart = key.index(after: separator)
+        let sandboxID = String(key[..<separator])
+        let workloadID = String(key[workloadStart...])
+        guard !sandboxID.isEmpty, !workloadID.isEmpty else { return nil }
+        return (sandboxID, workloadID)
     }
 
     private func showError(title: String, error: Error) {

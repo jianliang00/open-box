@@ -7,6 +7,8 @@
 
 import ContainerAPIClient
 import ContainerKit
+import ContainerSandboxServiceClient
+import ContainerizationOS
 import Foundation
 
 struct SandboxInventory {
@@ -23,6 +25,7 @@ enum ContainerSDKServiceError: LocalizedError {
     case emptyReference
     case invalidWorkspacePath(String)
     case commandFailed(code: Int32, output: String)
+    case interactiveShellRequiresMacOSGuest
 
     var errorDescription: String? {
         switch self {
@@ -32,6 +35,162 @@ enum ContainerSDKServiceError: LocalizedError {
             return "Workspace path does not exist or is not a directory: \(path)"
         case .commandFailed(let code, let output):
             return "Command exited with code \(code).\(output.isEmpty ? "" : " \(output)")"
+        case .interactiveShellRequiresMacOSGuest:
+            return "Interactive shell workloads are currently supported for macOS sandboxes only."
+        }
+    }
+}
+
+enum InteractiveWorkloadInputError: LocalizedError {
+    case closed
+
+    var errorDescription: String? {
+        switch self {
+        case .closed:
+            return "The shell input stream is closed."
+        }
+    }
+}
+
+struct WorkloadLaunch {
+    let workloadID: String
+    let terminalIO: InteractiveWorkloadIO?
+}
+
+final class InteractiveWorkloadIO: @unchecked Sendable {
+    private static let maxBufferedOutputBytes = 1 << 20
+
+    private let stdinHandle: FileHandle
+    private let outputHandle: FileHandle
+    private let lock = NSLock()
+    private var isClosed = false
+    private var bufferedOutput = Data()
+    private var outputHandler: (@Sendable (Data) -> Void)?
+    private var outputHandlerID: UUID?
+    private var sessionObjects: [String: AnyObject] = [:]
+
+    init(stdinHandle: FileHandle, outputHandle: FileHandle) {
+        self.stdinHandle = stdinHandle
+        self.outputHandle = outputHandle
+        outputHandle.readabilityHandler = { [weak self] handle in
+            self?.readOutput(from: handle)
+        }
+    }
+
+    deinit {
+        close()
+    }
+
+    func send(_ data: Data) throws {
+        try lock.withLock {
+            guard !isClosed else {
+                throw InteractiveWorkloadInputError.closed
+            }
+            try stdinHandle.write(contentsOf: data)
+        }
+    }
+
+    func send(_ bytes: ArraySlice<UInt8>) throws {
+        try send(Data(bytes))
+    }
+
+    func sendLine(_ line: String) throws {
+        let text = line.hasSuffix("\n") ? line : "\(line)\n"
+        try send(Data(text.utf8))
+    }
+
+    @discardableResult
+    func setOutputHandler(_ handler: @escaping @Sendable (Data) -> Void) -> UUID? {
+        let registration = lock.withLock { () -> (id: UUID, buffered: Data?)? in
+            guard !isClosed else { return nil }
+            let id = UUID()
+            outputHandlerID = id
+            outputHandler = handler
+            guard !bufferedOutput.isEmpty else { return (id, nil) }
+            let data = bufferedOutput
+            bufferedOutput.removeAll(keepingCapacity: true)
+            return (id, data)
+        }
+        guard let registration else { return nil }
+        if let buffered = registration.buffered {
+            handler(buffered)
+        }
+        return registration.id
+    }
+
+    func cachedSessionObject<T: AnyObject>(forKey key: String, create: () -> T) -> T {
+        if let existing = lock.withLock({ sessionObjects[key] as? T }) {
+            return existing
+        }
+
+        let created = create()
+        return lock.withLock {
+            if let existing = sessionObjects[key] as? T {
+                return existing
+            }
+            sessionObjects[key] = created
+            return created
+        }
+    }
+
+    func clearOutputHandler() {
+        lock.withLock {
+            outputHandler = nil
+            outputHandlerID = nil
+        }
+    }
+
+    func clearOutputHandler(id: UUID?) {
+        lock.withLock {
+            guard id == nil || outputHandlerID == id else { return }
+            outputHandler = nil
+            outputHandlerID = nil
+        }
+    }
+
+    func close() {
+        let shouldClose = lock.withLock { () -> Bool in
+            guard !isClosed else { return false }
+            isClosed = true
+            outputHandler = nil
+            outputHandlerID = nil
+            sessionObjects.removeAll()
+            return true
+        }
+
+        guard shouldClose else { return }
+        outputHandle.readabilityHandler = nil
+        try? stdinHandle.close()
+        try? outputHandle.close()
+    }
+
+    private func readOutput(from handle: FileHandle) {
+        let data = handle.availableData
+        guard !data.isEmpty else {
+            close()
+            return
+        }
+
+        let handler = lock.withLock { () -> (@Sendable (Data) -> Void)? in
+            guard !isClosed else { return nil }
+            guard let outputHandler else {
+                bufferOutput(data)
+                return nil
+            }
+            return outputHandler
+        }
+        handler?(data)
+    }
+
+    private func bufferOutput(_ data: Data) {
+        let overflow = bufferedOutput.count + data.count - Self.maxBufferedOutputBytes
+        if overflow > 0 {
+            bufferedOutput.removeFirst(min(overflow, bufferedOutput.count))
+        }
+        if data.count > Self.maxBufferedOutputBytes {
+            bufferedOutput = data.suffix(Self.maxBufferedOutputBytes)
+        } else {
+            bufferedOutput.append(data)
         }
     }
 }
@@ -47,7 +206,87 @@ actor ContainerSDKService {
     private static let defaultLinuxWorkspacePath = "/workspace"
     private static let defaultMacOSShellPath = "/bin/zsh"
     private static let defaultLinuxShellPath = "/bin/sh"
-    private static let defaultPathEnvironment = "PATH=/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/opt/homebrew/sbin"
+    private static let defaultPathEntries = [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ]
+    private static let terminalLocale = "en_US.UTF-8"
+    private static let defaultPathEnvironment = "PATH=\(defaultPathEntries.joined(separator: ":"))"
+
+    static func makeInteractiveTerminalEnvironment(baseEnvironment: [String], shellPath: String) -> [String] {
+        var order: [String] = []
+        var values: [String: String] = [:]
+
+        func set(_ key: String, _ value: String) {
+            if values[key] == nil {
+                order.append(key)
+            }
+            values[key] = value
+        }
+
+        for entry in baseEnvironment {
+            guard let separator = entry.firstIndex(of: "=") else { continue }
+            let key = String(entry[..<separator])
+            guard !key.isEmpty else { continue }
+            let value = String(entry[entry.index(after: separator)...])
+            set(key, value)
+        }
+
+        set("PATH", mergedPath(values["PATH"]))
+        set("TERM", "xterm-256color")
+        set("COLORTERM", "truecolor")
+        if !isUTF8Locale(values["LANG"]) {
+            set("LANG", terminalLocale)
+        }
+        if let lcAll = values["LC_ALL"], !lcAll.isEmpty, !isUTF8Locale(lcAll) {
+            set("LC_ALL", terminalLocale)
+        }
+        if !isUTF8Locale(values["LC_CTYPE"]) {
+            set("LC_CTYPE", terminalLocale)
+        }
+        set("SHELL", shellPath)
+        set("TERM_PROGRAM", "OpenBox")
+
+        if values["USER"]?.isEmpty ?? true, let user = inferredUser(fromHome: values["HOME"]) {
+            set("USER", user)
+        }
+        if values["LOGNAME"]?.isEmpty ?? true, let user = values["USER"], !user.isEmpty {
+            set("LOGNAME", user)
+        }
+
+        return order.compactMap { key in
+            guard let value = values[key] else { return nil }
+            return "\(key)=\(value)"
+        }
+    }
+
+    private static func mergedPath(_ currentPath: String?) -> String {
+        var entries = (currentPath ?? "")
+            .split(separator: ":", omittingEmptySubsequences: true)
+            .map(String.init)
+        for entry in defaultPathEntries where !entries.contains(entry) {
+            entries.append(entry)
+        }
+        return entries.joined(separator: ":")
+    }
+
+    private static func isUTF8Locale(_ locale: String?) -> Bool {
+        guard let locale, !locale.isEmpty else { return false }
+        return locale.range(of: "UTF-8", options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            || locale.range(of: "UTF8", options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
+    private static func inferredUser(fromHome home: String?) -> String? {
+        guard let home, !home.isEmpty else { return nil }
+        let components = home.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count >= 2, components[components.count - 2] == "Users" else { return nil }
+        return String(components.last!)
+    }
 
     func systemStatus() async throws -> SystemStatus {
         let kit = Self.makeKit()
@@ -161,27 +400,76 @@ actor ContainerSDKService {
         try await kit.deleteContainer(id: id, force: true)
     }
 
-    func runWorkload(from draft: WorkloadDraft) async throws -> String {
+    func runWorkload(from draft: WorkloadDraft) async throws -> WorkloadLaunch {
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: draft.sandboxID)
+        let isMacOSGuest = snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler
+        let environment = draft.mode == .interactiveShell
+            ? Self.makeInteractiveTerminalEnvironment(
+                baseEnvironment: snapshot.configuration.initProcess.environment,
+                shellPath: draft.shellPath
+            )
+            : [Self.defaultPathEnvironment]
+        let processUser: ProcessConfiguration.User = draft.mode == .interactiveShell
+            ? snapshot.configuration.initProcess.user
+            : .id(uid: 0, gid: 0)
         let workloadID = Self.makeWorkloadID()
         let process = ProcessConfiguration(
-            executable: snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler ? Self.defaultMacOSShellPath : Self.defaultLinuxShellPath,
-            arguments: ["-lc", draft.shellCommand],
-            environment: [Self.defaultPathEnvironment],
+            executable: draft.mode == .interactiveShell
+                ? draft.shellPath
+                : (isMacOSGuest ? Self.defaultMacOSShellPath : Self.defaultLinuxShellPath),
+            arguments: draft.mode == .interactiveShell ? ["-i"] : ["-lc", draft.shellCommand],
+            environment: environment,
             workingDirectory: draft.workingDirectory,
-            terminal: false,
-            user: .id(uid: 0, gid: 0)
+            terminal: draft.mode == .interactiveShell,
+            user: processUser
         )
 
-        if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
+        if isMacOSGuest {
             let configuration = WorkloadConfiguration(
                 id: workloadID,
                 processConfiguration: process
             )
+
+            if draft.mode == .interactiveShell {
+                let stdinPipe = Pipe()
+                let outputPipe = Pipe()
+                do {
+                    let client = Self.makeClient()
+                    try await client.createWorkload(
+                        containerId: draft.sandboxID,
+                        configuration: configuration,
+                        stdio: [
+                            stdinPipe.fileHandleForReading,
+                            outputPipe.fileHandleForWriting,
+                            nil
+                        ]
+                    )
+                    try await client.startWorkload(containerId: draft.sandboxID, workloadId: workloadID)
+                    try? stdinPipe.fileHandleForReading.close()
+                    try? outputPipe.fileHandleForWriting.close()
+                    return WorkloadLaunch(
+                        workloadID: workloadID,
+                        terminalIO: InteractiveWorkloadIO(
+                            stdinHandle: stdinPipe.fileHandleForWriting,
+                            outputHandle: outputPipe.fileHandleForReading
+                        )
+                    )
+                } catch {
+                    try? stdinPipe.fileHandleForReading.close()
+                    try? stdinPipe.fileHandleForWriting.close()
+                    try? outputPipe.fileHandleForReading.close()
+                    try? outputPipe.fileHandleForWriting.close()
+                    throw error
+                }
+            }
+
             try await kit.createWorkload(sandboxID: draft.sandboxID, configuration: configuration)
             try await kit.startWorkload(sandboxID: draft.sandboxID, workloadID: workloadID)
         } else {
+            guard draft.mode == .command else {
+                throw ContainerSDKServiceError.interactiveShellRequiresMacOSGuest
+            }
             let result = try await kit.execSync(id: draft.sandboxID, configuration: process)
             guard result.exitCode == 0 else {
                 let stderr = Self.decode(result.stderr)
@@ -192,7 +480,22 @@ actor ContainerSDKService {
                 )
             }
         }
-        return workloadID
+        return WorkloadLaunch(workloadID: workloadID, terminalIO: nil)
+    }
+
+    func resizeTerminal(sandboxID: String, workloadID: String, columns: Int, rows: Int) async throws {
+        guard columns > 0, rows > 0 else { return }
+
+        let kit = Self.makeKit()
+        let snapshot = try await kit.getContainer(id: sandboxID)
+        let client = try await SandboxClient.create(id: sandboxID, runtime: snapshot.configuration.runtimeHandler)
+        try await client.resize(
+            workloadID,
+            size: Terminal.Size(
+                width: UInt16(clamping: columns),
+                height: UInt16(clamping: rows)
+            )
+        )
     }
 
     func stopWorkload(sandboxID: String, workloadID: String) async throws {
@@ -500,7 +803,8 @@ actor ContainerSDKService {
                     stderrLogPath: workload.stderrLogPath,
                     startedAt: workload.startedDate,
                     exitedAt: workload.exitedAt,
-                    isImageBacked: workload.configuration.isImageBacked
+                    isImageBacked: workload.configuration.isImageBacked,
+                    isTerminal: workload.configuration.processConfiguration.terminal
                 )
             }
             .sorted { lhs, rhs in
