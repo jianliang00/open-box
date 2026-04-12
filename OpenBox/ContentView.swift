@@ -807,6 +807,8 @@ struct SandboxSummaryCard: View {
 
     private var desktopActionDisabled: Bool {
         appState.isMutating ||
+        !sandbox.isMacOSGuest ||
+        !sandbox.desktopGUIEnabled ||
         sandbox.status == .creating ||
         sandbox.status == .pulling ||
         sandbox.status == .starting ||
@@ -840,23 +842,11 @@ struct SandboxSummaryCard: View {
                         Label("Run Command", systemImage: "terminal")
                             .frame(minWidth: 108)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
                     .tint(AppTheme.accent)
                     .disabled(!sandbox.status.isRunning || appState.isMutating)
                     .help("Run Command")
-
-                    Button {
-                        appState.launchDesktop(for: sandbox.id)
-                    } label: {
-                        Label("Launch Desktop", systemImage: "desktopcomputer")
-                            .frame(minWidth: 124)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(AppTheme.accent)
-                    .disabled(desktopActionDisabled)
-                    .help("Launch Desktop")
 
                     Button {
                         appState.toggleSandbox(sandbox.id)
@@ -983,14 +973,17 @@ struct SandboxDesktopPanel: View {
                     .foregroundColor(AppTheme.onSurface)
                 StatusBadge(text: desktopStatusText, color: desktopStatusColor, fill: desktopStatusFill)
                 Spacer(minLength: 12)
-                Button {
-                    onLaunchDesktop()
-                } label: {
-                    Label("Launch Desktop", systemImage: "arrow.up.right.square")
+                if showsLaunchDesktopButton {
+                    Button {
+                        onLaunchDesktop()
+                    } label: {
+                        Label("Launch Desktop", systemImage: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isActionDisabled)
+                    .help("Launch Desktop")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isActionDisabled)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -1053,6 +1046,10 @@ struct SandboxDesktopPanel: View {
             return "desktopcomputer"
         }
         return "play.display"
+    }
+
+    private var showsLaunchDesktopButton: Bool {
+        sandbox.isMacOSGuest && sandbox.desktopGUIEnabled
     }
 
     private var desktopTitle: String {
