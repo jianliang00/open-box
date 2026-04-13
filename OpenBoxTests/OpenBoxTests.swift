@@ -109,6 +109,30 @@ struct OpenBoxTests {
         #expect(ContainerSDKService.registryHost(forImageReference: "localhost:5000/org/image:tag") == "localhost:5000")
     }
 
+    @Test func imagePullProgressAggregatesByteEvents() {
+        var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
+
+        progress.apply(event: "add-total-size", value: 400)
+        progress.apply(event: "add-size", value: 100)
+        progress.apply(event: "add-size", value: 50)
+
+        #expect(progress.totalBytes == 400)
+        #expect(progress.downloadedBytes == 150)
+        #expect(progress.fractionCompleted == 0.375)
+        #expect(progress.percentLabel == "37%")
+    }
+
+    @Test func imagePullProgressFallsBackToItemProgress() throws {
+        var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
+
+        progress.apply(event: "add-total-items", value: 4)
+        progress.apply(event: "add-items", value: 1)
+
+        let fraction = try #require(progress.fractionCompleted)
+        #expect(abs(fraction - 0.25) < 0.0001)
+        #expect(progress.summary == "1 of 4 items")
+    }
+
     @Test func runtimePlatformDescriptionsIgnoreAttestationManifests() {
         let index = Index(manifests: [
             Descriptor(

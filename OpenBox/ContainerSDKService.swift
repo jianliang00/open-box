@@ -11,6 +11,7 @@ import ContainerKitServices
 import ContainerPlugin
 import ContainerSandboxServiceClient
 import Containerization
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -416,7 +417,11 @@ actor ContainerSDKService {
         )
     }
 
-    func pullImage(reference: String, credentials: RegistryCredentials? = nil) async throws -> OCIImageRecord {
+    func pullImage(
+        reference: String,
+        credentials: RegistryCredentials? = nil,
+        progress: (@Sendable (ImagePullProgress) async -> Void)? = nil
+    ) async throws -> OCIImageRecord {
         let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw ContainerSDKServiceError.emptyReference
@@ -425,7 +430,11 @@ actor ContainerSDKService {
         try await ensureContainerServicesReady()
 
         do {
-            let image = try await Self.pullImageFromRegistry(reference: trimmed, credentials: credentials)
+            let image = try await Self.pullImageFromRegistry(
+                reference: trimmed,
+                credentials: credentials,
+                progress: progress
+            )
             return await Self.makeImageRecord(from: image, availability: .downloaded)
         } catch {
             throw Self.pullImageError(error, reference: trimmed, credentialsWereProvided: credentials != nil)
@@ -1509,15 +1518,21 @@ actor ContainerSDKService {
 
     private static func pullImageFromRegistry(
         reference: String,
-        credentials: RegistryCredentials?
+        credentials: RegistryCredentials?,
+        progress: (@Sendable (ImagePullProgress) async -> Void)? = nil
     ) async throws -> Containerization.Image {
         let normalizedReference = try ClientImage.normalizeReference(reference)
         let authentication = try registryAuthentication(for: credentials)
         let imageStore = try Containerization.ImageStore(path: bundledContainerAppRoot())
+        let progressTracker = ImagePullProgressTracker(reference: reference)
         let image = try await imageStore.pull(
             reference: normalizedReference,
             insecure: shouldUseInsecureRegistryTransport(for: normalizedReference),
             auth: authentication,
+            progress: { events in
+                let snapshot = await progressTracker.apply(events: events)
+                await progress?(snapshot)
+            },
             maxConcurrentDownloads: 3
         )
         return try await normalizeRuntimeImageIfNeeded(image, in: imageStore)
@@ -1670,6 +1685,41 @@ private struct StoredImageCatalog: Codable {
 private struct StoredImageReference: Codable, Hashable {
     var reference: String
     var addedAt: Date
+}
+
+private actor ImagePullProgressTracker {
+    private var progress: ImagePullProgress
+
+    init(reference: String) {
+        self.progress = ImagePullProgress(reference: reference)
+    }
+
+    func apply(events: [ProgressEvent]) -> ImagePullProgress {
+        for event in events {
+            guard let value = Self.int64Value(from: event.value) else { continue }
+            progress.apply(event: event.event, value: value)
+        }
+        return progress
+    }
+
+    private static func int64Value(from value: any Sendable) -> Int64? {
+        if let value = value as? Int64 {
+            return value
+        }
+        if let value = value as? Int {
+            return Int64(value)
+        }
+        if let value = value as? UInt64, value <= UInt64(Int64.max) {
+            return Int64(value)
+        }
+        if let value = value as? UInt, value <= UInt(Int64.max) {
+            return Int64(value)
+        }
+        if let value = value as? NSNumber {
+            return value.int64Value
+        }
+        return nil
+    }
 }
 
 private final class ImageCatalogStore {

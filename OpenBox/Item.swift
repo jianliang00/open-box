@@ -91,6 +91,7 @@ enum WorkloadStatus: String, CaseIterable, Identifiable, Hashable {
 enum OCIImageAvailability: String, Codable, Hashable {
     case downloaded
     case added
+    case pulling
 }
 
 struct OCIImageRecord: Identifiable, Hashable {
@@ -118,6 +119,83 @@ struct OCIImageRecord: Identifiable, Hashable {
 
     var isDownloaded: Bool {
         availability == .downloaded
+    }
+
+    var isPulling: Bool {
+        availability == .pulling
+    }
+}
+
+struct ImagePullProgress: Hashable, Sendable {
+    var reference: String
+    private(set) var downloadedBytes: Int64
+    private(set) var totalBytes: Int64
+    private(set) var completedItems: Int64
+    private(set) var totalItems: Int64
+
+    init(
+        reference: String,
+        downloadedBytes: Int64 = 0,
+        totalBytes: Int64 = 0,
+        completedItems: Int64 = 0,
+        totalItems: Int64 = 0
+    ) {
+        self.reference = reference
+        self.downloadedBytes = downloadedBytes
+        self.totalBytes = totalBytes
+        self.completedItems = completedItems
+        self.totalItems = totalItems
+    }
+
+    var fractionCompleted: Double? {
+        if totalBytes > 0 {
+            return min(1, max(0, Double(downloadedBytes) / Double(totalBytes)))
+        }
+        if totalItems > 0 {
+            return min(1, max(0, Double(completedItems) / Double(totalItems)))
+        }
+        return nil
+    }
+
+    var summary: String {
+        if totalBytes > 0 {
+            return "\(percentLabel) · \(Self.byteCountString(downloadedBytes)) of \(Self.byteCountString(totalBytes))"
+        }
+        if downloadedBytes > 0 {
+            return "\(Self.byteCountString(downloadedBytes)) downloaded"
+        }
+        if totalItems > 0 {
+            return "\(completedItems) of \(totalItems) items"
+        }
+        return "Waiting for registry"
+    }
+
+    var percentLabel: String {
+        guard let fractionCompleted else { return "0%" }
+        return "\(Int((fractionCompleted * 100).rounded(.down)))%"
+    }
+
+    mutating func apply(event: String, value: Int64) {
+        switch event {
+        case "add-size":
+            downloadedBytes = max(0, downloadedBytes + value)
+        case "add-total-size":
+            totalBytes = max(0, totalBytes + value)
+        case "add-items":
+            completedItems = max(0, completedItems + value)
+        case "add-total-items":
+            totalItems = max(0, totalItems + value)
+        default:
+            break
+        }
+    }
+
+    private static func byteCountString(_ byteCount: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: byteCount)
     }
 }
 
@@ -306,6 +384,7 @@ final class AppState: ObservableObject {
     @Published var isRefreshing = false
     @Published var isMutating = false
     @Published var activityMessage: String?
+    @Published private var imagePulls: [String: ImagePullProgress] = [:]
     @Published private var interactiveTerminalIO: [String: InteractiveWorkloadIO] = [:]
 
     private let service: ContainerSDKService
@@ -323,11 +402,41 @@ final class AppState: ObservableObject {
 
     var selectedImage: OCIImageRecord? {
         guard let selectedImageReference else { return nil }
-        return images.first { $0.reference == selectedImageReference }
+        return displayedImages.first { $0.reference == selectedImageReference }
     }
 
     var downloadedImages: [OCIImageRecord] {
-        images.filter(\.isDownloaded)
+        displayedImages.filter(\.isDownloaded)
+    }
+
+    var displayedImages: [OCIImageRecord] {
+        let pullingReferences = Set(imagePulls.keys)
+        let persistentImages = images.map { image in
+            guard pullingReferences.contains(image.reference) else { return image }
+            return OCIImageRecord(
+                reference: image.reference,
+                digest: image.digest,
+                mediaType: image.mediaType,
+                availability: .pulling,
+                platforms: image.platforms
+            )
+        }
+
+        let persistentReferences = Set(persistentImages.map(\.reference))
+        let transientImages = imagePulls.values
+            .filter { !persistentReferences.contains($0.reference) }
+            .map {
+                OCIImageRecord(
+                    reference: $0.reference,
+                    digest: "",
+                    mediaType: "Pull in progress",
+                    availability: .pulling
+                )
+            }
+
+        return (persistentImages + transientImages).sorted { lhs, rhs in
+            lhs.reference.localizedCaseInsensitiveCompare(rhs.reference) == .orderedAscending
+        }
     }
 
     var selectedSandboxDetail: SandboxDetail? {
@@ -425,12 +534,23 @@ final class AppState: ObservableObject {
             )
             return
         }
+        guard !isMutating else { return }
+
+        startImagePull(reference: trimmed)
 
         runMutation(activity: "Pulling \(trimmed)") { [service] in
-            let image = try await service.pullImage(reference: trimmed, credentials: credentials)
+            defer {
+                self.finishImagePull(reference: trimmed)
+            }
+
+            let image = try await service.pullImage(reference: trimmed, credentials: credentials) { progress in
+                await MainActor.run {
+                    self.updateImagePull(progress)
+                }
+            }
             await self.refreshAll()
             self.selectedSidebar = .images
-            self.selectedImageReference = self.images.first(where: { $0.reference == image.reference })?.reference ?? image.reference
+            self.selectedImageReference = self.displayedImages.first(where: { $0.reference == image.reference })?.reference ?? image.reference
         }
     }
 
@@ -696,6 +816,10 @@ final class AppState: ObservableObject {
         showError(title: "Terminal I/O failed", error: error)
     }
 
+    func imagePullProgress(for reference: String) -> ImagePullProgress? {
+        imagePulls[reference]
+    }
+
     private func runMutation(
         activity: String,
         operation: @escaping @MainActor @Sendable () async throws -> Void
@@ -784,7 +908,8 @@ final class AppState: ObservableObject {
             self.selectedSandboxID = nil
             self.selectedWorkloadID = nil
         }
-        if let selectedImageReference, !images.contains(where: { $0.reference == selectedImageReference }) {
+        let selectableImages = displayedImages
+        if let selectedImageReference, !selectableImages.contains(where: { $0.reference == selectedImageReference }) {
             self.selectedImageReference = nil
         }
         if selectedSandboxID == nil {
@@ -795,8 +920,23 @@ final class AppState: ObservableObject {
             self.selectedWorkloadID = nil
         }
         if selectedImageReference == nil {
-            selectedImageReference = images.first?.reference
+            selectedImageReference = selectableImages.first?.reference
         }
+    }
+
+    private func startImagePull(reference: String) {
+        imagePulls[reference] = ImagePullProgress(reference: reference)
+        selectedSidebar = .images
+        selectedImageReference = reference
+    }
+
+    private func updateImagePull(_ progress: ImagePullProgress) {
+        imagePulls[progress.reference] = progress
+        activityMessage = "Pulling \(progress.reference) · \(progress.summary)"
+    }
+
+    private func finishImagePull(reference: String) {
+        imagePulls[reference] = nil
     }
 
     private func reconcileInteractiveTerminalIO() {

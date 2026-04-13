@@ -473,8 +473,8 @@ struct ImageListView: View {
     @State private var searchText = ""
 
     private var filteredImages: [OCIImageRecord] {
-        guard !searchText.isEmpty else { return appState.images }
-        return appState.images.filter { image in
+        guard !searchText.isEmpty else { return appState.displayedImages }
+        return appState.displayedImages.filter { image in
             image.reference.localizedCaseInsensitiveContains(searchText) ||
             image.digest.localizedCaseInsensitiveContains(searchText)
         }
@@ -520,7 +520,11 @@ struct ImageListView: View {
                             Button {
                                 appState.selectedImageReference = image.reference
                             } label: {
-                                ImageRow(image: image, isSelected: isSelected)
+                                ImageRow(
+                                    image: image,
+                                    progress: appState.imagePullProgress(for: image.reference),
+                                    isSelected: isSelected
+                                )
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -528,6 +532,9 @@ struct ImageListView: View {
                                     Button("Create Sandbox") {
                                         onCreateSandbox(image.reference)
                                     }
+                                } else if image.isPulling {
+                                    Button("Pulling Image") {}
+                                        .disabled(true)
                                 } else {
                                     Button("Pull Image") {
                                         appState.pullImage(reference: image.reference)
@@ -536,6 +543,7 @@ struct ImageListView: View {
                                 Button(image.isDownloaded ? "Delete Image" : "Remove Image", role: .destructive) {
                                     appState.deleteImage(reference: image.reference)
                                 }
+                                .disabled(image.isPulling)
                             }
                         }
                     }
@@ -616,6 +624,7 @@ struct DetailColumnView: View {
                 if let image = appState.selectedImage {
                     ImageDetailView(
                         image: image,
+                        progress: appState.imagePullProgress(for: image.reference),
                         onCreateSandbox: {
                             createSandboxReference = image.reference
                             showCreateSandbox = true
@@ -638,6 +647,7 @@ struct DetailColumnView: View {
 
 struct ImageRow: View {
     let image: OCIImageRecord
+    let progress: ImagePullProgress?
     let isSelected: Bool
 
     var body: some View {
@@ -664,8 +674,8 @@ struct ImageRow: View {
                 HStack(spacing: 8) {
                     StatusPill(
                         text: image.availability.label,
-                        color: image.isDownloaded ? AppTheme.accent : AppTheme.warning,
-                        fill: image.isDownloaded ? AppTheme.selectionSurface : AppTheme.warningSurface
+                        color: image.availability.color,
+                        fill: image.availability.fillColor
                     )
                     if image.isDownloaded {
                         StatusPill(text: image.shortDigest, color: AppTheme.secondary, fill: AppTheme.detailSurface)
@@ -675,6 +685,10 @@ struct ImageRow: View {
                         .foregroundColor(AppTheme.outline)
                         .italic()
                         .lineLimit(1)
+                }
+
+                if image.isPulling {
+                    ImagePullProgressLine(progress: progress)
                 }
             }
         }
@@ -698,6 +712,30 @@ struct ImageRow: View {
         } else {
             Color.clear.frame(width: 3, height: 34)
         }
+    }
+}
+
+struct ImagePullProgressLine: View {
+    let progress: ImagePullProgress?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Group {
+                if let fractionCompleted = progress?.fractionCompleted {
+                    ProgressView(value: fractionCompleted)
+                } else {
+                    ProgressView()
+                }
+            }
+            .progressViewStyle(.linear)
+            .tint(AppTheme.accent)
+
+            Text(progress?.summary ?? "Waiting for registry")
+                .font(AppTheme.metadataFont)
+                .foregroundColor(AppTheme.outline)
+                .lineLimit(1)
+        }
+        .accessibilityLabel(progress?.summary ?? "Pulling image")
     }
 }
 
@@ -1261,6 +1299,7 @@ struct ImageDetailView: View {
     @EnvironmentObject private var appState: AppState
 
     let image: OCIImageRecord
+    let progress: ImagePullProgress?
     let onCreateSandbox: () -> Void
 
     var body: some View {
@@ -1276,8 +1315,8 @@ struct ImageDetailView: View {
                     HStack(spacing: 10) {
                         StatusBadge(
                             text: image.availability.label,
-                            color: image.isDownloaded ? AppTheme.accent : AppTheme.warning,
-                            fill: image.isDownloaded ? AppTheme.selectionSurface : AppTheme.warningSurface
+                            color: image.availability.color,
+                            fill: image.availability.fillColor
                         )
                         if image.isDownloaded {
                             StatusBadge(text: image.shortDigest, color: AppTheme.accent)
@@ -1293,6 +1332,10 @@ struct ImageDetailView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .disabled(appState.isMutating)
+                        } else if image.isPulling {
+                            Button("Pulling Image") {}
+                                .buttonStyle(.borderedProminent)
+                                .disabled(true)
                         } else {
                             Button("Pull Image") {
                                 appState.pullImage(reference: image.reference)
@@ -1305,7 +1348,11 @@ struct ImageDetailView: View {
                             appState.deleteImage(reference: image.reference)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(appState.isMutating)
+                        .disabled(appState.isMutating || image.isPulling)
+                    }
+
+                    if image.isPulling {
+                        ImagePullProgressLine(progress: progress)
                     }
                 }
                 .padding(18)
@@ -1320,7 +1367,7 @@ struct ImageDetailView: View {
                 }
 
                 InfoCard(title: "Usage") {
-                    Text(image.isDownloaded ? "Use this downloaded image directly in a new sandbox." : "Pull this reference before creating a sandbox from it.")
+                    Text(image.usageDescription)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -2876,6 +2923,26 @@ extension OCIImageAvailability {
             return "Downloaded"
         case .added:
             return "Added"
+        case .pulling:
+            return "Pulling"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .downloaded, .pulling:
+            return AppTheme.accent
+        case .added:
+            return AppTheme.warning
+        }
+    }
+
+    var fillColor: Color {
+        switch self {
+        case .downloaded, .pulling:
+            return AppTheme.selectionSurface
+        case .added:
+            return AppTheme.warningSurface
         }
     }
 }
@@ -2887,6 +2954,17 @@ extension OCIImageRecord {
 
     var platformLabel: String {
         platforms.joined(separator: ", ")
+    }
+
+    var usageDescription: String {
+        switch availability {
+        case .downloaded:
+            return "Use this downloaded image directly in a new sandbox."
+        case .pulling:
+            return "This image is being pulled. It will be available for new sandboxes after the download finishes."
+        case .added:
+            return "Pull this reference before creating a sandbox from it."
+        }
     }
 }
 
