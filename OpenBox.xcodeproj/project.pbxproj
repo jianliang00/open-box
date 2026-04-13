@@ -212,7 +212,7 @@
 			mainGroup = 40992CD52F24F5AB008AEFEB;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */,
+				70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */,
 				70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -262,7 +262,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/embed-container-runtime.sh",
-				"$(SRCROOT)/../container/Package.swift",
+				"$(SRCROOT)/OpenBox.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
 			);
 			name = "Embed Container Runtime";
 			outputFileListPaths = (
@@ -641,14 +641,15 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../container;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
+		70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jianliang00/container";
+			requirement = {
+				kind = revision;
+				revision = ac67a53d79362cd69ba8a15a643c18697fccd40b;
+			};
+		};
 		70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -662,17 +663,17 @@
 /* Begin XCSwiftPackageProductDependency section */
 		70A1B2C3D4E5F60718293A41 /* ContainerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
 			productName = ContainerKit;
 		};
 		70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
 			productName = ContainerAPIClient;
 		};
 		70A1B2C3D4E5F60718293A46 /* ContainerKitServices */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
 			productName = ContainerKitServices;
 		};
 		70B2C3D4E5F60718293A52 /* SwiftTerm */ = {

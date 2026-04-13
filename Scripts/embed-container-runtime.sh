@@ -1,7 +1,42 @@
 #!/bin/zsh
 set -euo pipefail
 
-container_package_dir="${OPENBOX_CONTAINER_PACKAGE_DIR:-${SRCROOT}/../container}"
+resolve_container_package_dir() {
+  if [[ -n "${OPENBOX_CONTAINER_PACKAGE_DIR:-}" ]]; then
+    echo "${OPENBOX_CONTAINER_PACKAGE_DIR}"
+    return 0
+  fi
+
+  local -a candidates=()
+  local derived_data_dir
+
+  if [[ -n "${TARGET_BUILD_DIR:-}" && -d "${TARGET_BUILD_DIR}/../../.." ]]; then
+    derived_data_dir="$(cd "${TARGET_BUILD_DIR}/../../.." && pwd)"
+    candidates+=("${derived_data_dir}/SourcePackages/checkouts/container")
+  fi
+
+  if [[ -n "${PROJECT_TEMP_ROOT:-}" && -d "${PROJECT_TEMP_ROOT}/../.." ]]; then
+    derived_data_dir="$(cd "${PROJECT_TEMP_ROOT}/../.." && pwd)"
+    candidates+=("${derived_data_dir}/SourcePackages/checkouts/container")
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "${candidate}/Package.swift" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if ! container_package_dir="$(resolve_container_package_dir)"; then
+  echo "error: container Swift package checkout was not found." >&2
+  echo "error: resolve Xcode packages first, or set OPENBOX_CONTAINER_PACKAGE_DIR=/path/to/container for local SDK development." >&2
+  exit 1
+fi
+
 if [[ ! -f "${container_package_dir}/Package.swift" ]]; then
   echo "error: container package not found at ${container_package_dir}" >&2
   exit 1
