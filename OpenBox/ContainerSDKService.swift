@@ -1441,6 +1441,7 @@ actor ContainerSDKService {
         }
 
         let workloads = snapshot.workloads
+            .filter { $0.id != id }
             .map { workload in
                 WorkloadRecord(
                     id: workload.id,
