@@ -650,7 +650,7 @@
 			repositoryURL = "https://github.com/jianliang00/container";
 			requirement = {
 				kind = revision;
-				revision = ac67a53d79362cd69ba8a15a643c18697fccd40b;
+				revision = 6200e581eeaf79f25765ba2c2815e353587326e0;
 			};
 		};
 		70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {

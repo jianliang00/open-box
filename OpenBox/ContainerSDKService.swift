@@ -707,7 +707,7 @@ actor ContainerSDKService {
         Self.logger.info(
             "Ensuring bundled container services: installRoot=\(services.installRootURL.path, privacy: .public)"
         )
-        try await services.ensureRunning(timeout: .seconds(30))
+        try await services.ensureRunning(timeout: .seconds(30), installDefaultKernel: true)
 
         let health = try await Self.makeKit().health(timeout: .seconds(5))
         guard services.owns(health) else {
