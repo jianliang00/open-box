@@ -75,6 +75,24 @@ struct OpenBoxTests {
         )
     }
 
+    @Test func macOSRuntimeLaunchdLabelMatchesContainerRuntimePluginLabel() {
+        #expect(
+            ContainerSDKService.macOSRuntimeServiceLabel(id: "sandbox-1")
+                == "com.apple.container.container-runtime-macos.sandbox-1"
+        )
+        #expect(
+            ContainerSDKService.macOSRuntimeLaunchdLabel(id: "sandbox-1", domain: "gui/501")
+                == "gui/501/com.apple.container.container-runtime-macos.sandbox-1"
+        )
+    }
+
+    @Test func macOSSidecarLaunchdLabelMatchesRuntimeSidecarLabel() {
+        #expect(
+            ContainerSDKService.macOSSidecarLaunchdLabel(id: "sandbox-1", uid: 501)
+                == "gui/501/com.apple.container.runtime.container-runtime-macos-sidecar.sandbox-1"
+        )
+    }
+
     @Test func keychainRegistryErrorMessageSuggestsCredentialRepair() {
         let error = LocalizedTestError(
             errorDescription: #"internalError: "error querying keychain for ghcr.io (cause:"queryError("query failure: unhandledError(status: -25293)")")""#

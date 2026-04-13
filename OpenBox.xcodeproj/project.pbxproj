@@ -10,6 +10,7 @@
 		70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A41 /* ContainerKit */; };
 		70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */; };
 		70A1B2C3D4E5F60718293A45 /* ContainerKitServices in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A46 /* ContainerKitServices */; };
+		70A1B2C3D4E5F60718293A48 /* ContainerPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A47 /* ContainerPlugin */; };
 		70B2C3D4E5F60718293A50 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 70B2C3D4E5F60718293A52 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
@@ -62,6 +63,7 @@
 				70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */,
 				70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */,
 				70A1B2C3D4E5F60718293A45 /* ContainerKitServices in Frameworks */,
+				70A1B2C3D4E5F60718293A48 /* ContainerPlugin in Frameworks */,
 				70B2C3D4E5F60718293A50 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -127,6 +129,7 @@
 				70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */,
 				70A1B2C3D4E5F60718293A41 /* ContainerKit */,
 				70A1B2C3D4E5F60718293A46 /* ContainerKitServices */,
+				70A1B2C3D4E5F60718293A47 /* ContainerPlugin */,
 				70B2C3D4E5F60718293A52 /* SwiftTerm */,
 			);
 			productName = OpenBox;
@@ -675,6 +678,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
 			productName = ContainerKitServices;
+		};
+		70A1B2C3D4E5F60718293A47 /* ContainerPlugin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			productName = ContainerPlugin;
 		};
 		70B2C3D4E5F60718293A52 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;

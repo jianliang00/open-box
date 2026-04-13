@@ -8,6 +8,7 @@
 import ContainerAPIClient
 import ContainerKit
 import ContainerKitServices
+import ContainerPlugin
 import ContainerSandboxServiceClient
 import Containerization
 import ContainerizationOCI
@@ -38,6 +39,7 @@ enum ContainerSDKServiceError: LocalizedError {
     case registrySignInRequired(host: String)
     case registrySignInFailed(host: String)
     case registryCredentialsUnavailable(host: String)
+    case sandboxIsStopping(String)
 
     var errorDescription: String? {
         switch self {
@@ -65,6 +67,8 @@ enum ContainerSDKServiceError: LocalizedError {
             return "Registry sign-in for \(host) was rejected. Check the username and access token, then try again."
         case .registryCredentialsUnavailable(let host):
             return "OpenBox hit a registry sign-in lookup failure for \(host). Public images are pulled anonymously; private images need sign-in details in OpenBox."
+        case .sandboxIsStopping(let id):
+            return "Sandbox \(id) is still stopping. Try again after it finishes."
         }
     }
 }
@@ -90,6 +94,11 @@ struct WorkloadLaunch {
     let workloadID: String
     let terminalIO: InteractiveWorkloadIO?
     let workload: WorkloadRecord?
+}
+
+private struct MacOSRuntimePluginContext {
+    let loader: PluginLoader
+    let plugin: Plugin
 }
 
 final class InteractiveWorkloadIO: @unchecked Sendable {
@@ -385,12 +394,12 @@ actor ContainerSDKService {
             }
 
         var details: [String: SandboxDetail] = [:]
+        var sandboxes: [SandboxRecord] = []
+        sandboxes.reserveCapacity(containerSnapshots.count)
         for snapshot in containerSnapshots {
-            details[snapshot.id] = await loadSandboxDetail(id: snapshot.id)
-        }
-
-        let sandboxes = containerSnapshots.map { snapshot in
-            Self.makeSandboxRecord(from: snapshot, detail: details[snapshot.id])
+            let live = await Self.resolvedSandboxSnapshot(from: snapshot, kit: kit)
+            details[live.snapshot.id] = live.detail
+            sandboxes.append(Self.makeSandboxRecord(from: live.snapshot, detail: live.detail))
         }
 
         return SandboxInventory(sandboxes: sandboxes, details: details)
@@ -400,10 +409,10 @@ actor ContainerSDKService {
         try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: id)
-        let detail = await loadSandboxDetail(id: id)
+        let live = await Self.resolvedSandboxSnapshot(from: snapshot, kit: kit)
         return SandboxSnapshotRecord(
-            record: Self.makeSandboxRecord(from: snapshot, detail: detail),
-            detail: detail
+            record: Self.makeSandboxRecord(from: live.snapshot, detail: live.detail),
+            detail: live.detail
         )
     }
 
@@ -452,7 +461,7 @@ actor ContainerSDKService {
         if draft.autoStart {
             if configuration.runtimeHandler == Self.macOSRuntimeHandler {
                 Self.logger.info("Auto-starting macOS sandbox without Desktop GUI: id=\(sandboxID, privacy: .public)")
-                try await Self.startContainer(id: sandboxID, client: client, presentGUI: false)
+                try await Self.startMacOSSandbox(id: sandboxID, configuration: configuration, presentGUI: false)
             } else {
                 Self.logger.info("Auto-starting non-macOS sandbox: id=\(sandboxID, privacy: .public) runtime=\(configuration.runtimeHandler, privacy: .public)")
                 try await Self.startContainer(id: sandboxID, client: client)
@@ -467,7 +476,7 @@ actor ContainerSDKService {
         let snapshot = try await kit.getContainer(id: id)
         if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
             Self.logger.info("Starting macOS sandbox without Desktop GUI: id=\(id, privacy: .public)")
-            try await Self.startContainer(id: id, client: Self.makeClient(), presentGUI: false)
+            try await Self.startMacOSSandbox(id: id, configuration: snapshot.configuration, presentGUI: false)
         } else {
             Self.logger.info("Starting non-macOS sandbox: id=\(id, privacy: .public) runtime=\(snapshot.configuration.runtimeHandler, privacy: .public)")
             try await Self.startContainer(id: id, client: Self.makeClient())
@@ -485,13 +494,8 @@ actor ContainerSDKService {
             throw ContainerSDKServiceError.desktopGUIIsDisabled
         }
 
-        if SandboxStatus(runtimeRawValue: snapshot.status.rawValue) == .running {
-            Self.logger.info("Showing Desktop GUI for running sandbox: id=\(id, privacy: .public)")
-            try await kit.showSandboxGUI(id: id)
-        } else {
-            Self.logger.info("Starting macOS sandbox with Desktop GUI: id=\(id, privacy: .public)")
-            try await Self.startContainer(id: id, client: Self.makeClient(), presentGUI: true)
-        }
+        Self.logger.info("Starting or showing macOS Desktop GUI: id=\(id, privacy: .public)")
+        try await Self.startMacOSSandbox(id: id, configuration: snapshot.configuration, presentGUI: true)
     }
 
     func stopSandbox(id: String) async throws {
@@ -499,7 +503,7 @@ actor ContainerSDKService {
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: id)
         if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
-            try await kit.stopSandbox(id: id, options: .default)
+            try await Self.stopMacOSSandbox(id: id, configuration: snapshot.configuration)
         } else {
             try await kit.stopContainer(id: id, options: .default)
         }
@@ -508,6 +512,10 @@ actor ContainerSDKService {
     func removeSandbox(id: String) async throws {
         try await ensureContainerServicesReady()
         let kit = Self.makeKit()
+        if let snapshot = try? await kit.getContainer(id: id),
+           snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
+            try await Self.stopMacOSSandbox(id: id, configuration: snapshot.configuration)
+        }
         try await kit.deleteContainer(id: id, force: true)
     }
 
@@ -547,17 +555,19 @@ actor ContainerSDKService {
                 let stdinPipe = Pipe()
                 let outputPipe = Pipe()
                 do {
-                    let client = Self.makeClient()
+                    let client = try await Self.startedMacOSSandboxClient(
+                        id: draft.sandboxID,
+                        configuration: snapshot.configuration
+                    )
                     try await client.createWorkload(
-                        containerId: draft.sandboxID,
-                        configuration: configuration,
+                        configuration,
                         stdio: [
                             stdinPipe.fileHandleForReading,
                             outputPipe.fileHandleForWriting,
                             nil
                         ]
                     )
-                    try await client.startWorkload(containerId: draft.sandboxID, workloadId: workloadID)
+                    try await client.startWorkload(workloadID)
                     try? stdinPipe.fileHandleForReading.close()
                     try? outputPipe.fileHandleForWriting.close()
                     return WorkloadLaunch(
@@ -577,8 +587,12 @@ actor ContainerSDKService {
                 }
             }
 
-            try await kit.createWorkload(sandboxID: draft.sandboxID, configuration: configuration)
-            try await kit.startWorkload(sandboxID: draft.sandboxID, workloadID: workloadID)
+            let client = try await Self.startedMacOSSandboxClient(
+                id: draft.sandboxID,
+                configuration: snapshot.configuration
+            )
+            try await client.createWorkload(configuration, stdio: [nil, nil, nil])
+            try await client.startWorkload(workloadID)
         } else {
             guard draft.mode == .command else {
                 throw ContainerSDKServiceError.interactiveShellRequiresMacOSGuest
@@ -625,7 +639,16 @@ actor ContainerSDKService {
         try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: sandboxID)
-        let client = try await SandboxClient.create(id: sandboxID, runtime: snapshot.configuration.runtimeHandler)
+        let client: SandboxClient
+        if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
+            guard let live = try? await Self.liveMacOSSandbox(id: sandboxID, configuration: snapshot.configuration),
+                  live.snapshot.status == .running else {
+                return
+            }
+            client = live.client
+        } else {
+            client = try await SandboxClient.create(id: sandboxID, runtime: snapshot.configuration.runtimeHandler)
+        }
         try await client.resize(
             workloadID,
             size: Terminal.Size(
@@ -638,13 +661,31 @@ actor ContainerSDKService {
     func stopWorkload(sandboxID: String, workloadID: String) async throws {
         try await ensureContainerServicesReady()
         let kit = Self.makeKit()
-        try await kit.stopWorkload(sandboxID: sandboxID, workloadID: workloadID, options: .default)
+        let snapshot = try await kit.getContainer(id: sandboxID)
+        if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
+            guard let live = try? await Self.liveMacOSSandbox(id: sandboxID, configuration: snapshot.configuration),
+                  live.snapshot.status == .running || live.snapshot.status == .stopping else {
+                return
+            }
+            try await live.client.stopWorkload(workloadID, options: .default)
+        } else {
+            try await kit.stopWorkload(sandboxID: sandboxID, workloadID: workloadID, options: .default)
+        }
     }
 
     func removeWorkload(sandboxID: String, workloadID: String) async throws {
         try await ensureContainerServicesReady()
         let kit = Self.makeKit()
-        try await kit.removeWorkload(sandboxID: sandboxID, workloadID: workloadID)
+        let snapshot = try await kit.getContainer(id: sandboxID)
+        if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
+            let client = try await Self.preparedMacOSSandboxClient(
+                id: sandboxID,
+                configuration: snapshot.configuration
+            )
+            try await client.removeWorkload(workloadID)
+        } else {
+            try await kit.removeWorkload(sandboxID: sandboxID, workloadID: workloadID)
+        }
     }
 
     private func ensureContainerServicesReady() async throws {
@@ -736,6 +777,204 @@ actor ContainerSDKService {
 
     private static func makeClient() -> ContainerClient {
         ContainerClient()
+    }
+
+    private static func macOSRuntimePluginContext() throws -> MacOSRuntimePluginContext {
+        let appRoot = try bundledContainerAppRoot()
+        let installRoot = try bundledContainerInstallRoot()
+        let userPluginsURL: URL? = {
+            let url = PluginLoader.userPluginsDir(installRoot: installRoot)
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                ? url
+                : nil
+        }()
+        let appBundlePluginsURL = Foundation.Bundle.main.resourceURL?.appendingPathComponent("plugins", isDirectory: true)
+        let installRootPluginsURL = installRoot
+            .appendingPathComponent("libexec", isDirectory: true)
+            .appendingPathComponent("container", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .standardized
+        let loader = try PluginLoader(
+            appRoot: appRoot,
+            installRoot: installRoot,
+            pluginDirectories: [userPluginsURL, appBundlePluginsURL, installRootPluginsURL].compactMap { $0 },
+            pluginFactories: [
+                DefaultPluginFactory(),
+                AppBundlePluginFactory()
+            ]
+        )
+        guard let plugin = loader.findPlugin(name: macOSRuntimeHandler),
+              plugin.hasType(.runtime) else {
+            throw ContainerSDKServiceError.bundledContainerRuntimeMissing(macOSRuntimeHandler)
+        }
+        return MacOSRuntimePluginContext(loader: loader, plugin: plugin)
+    }
+
+    private static func macOSContainerRoot(id: String) throws -> URL {
+        try bundledContainerAppRoot()
+            .appendingPathComponent("containers", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+    }
+
+    static func macOSRuntimeServiceLabel(id: String) -> String {
+        "com.apple.container.\(macOSRuntimeHandler).\(id)"
+    }
+
+    static func macOSRuntimeLaunchdLabel(id: String, domain: String) -> String {
+        "\(domain)/\(macOSRuntimeServiceLabel(id: id))"
+    }
+
+    static func macOSSidecarLaunchdLabel(id: String, uid: uid_t = getuid()) -> String {
+        "gui/\(uid)/com.apple.container.runtime.\(macOSRuntimeHandler)-sidecar.\(id)"
+    }
+
+    private static func macOSRuntimeLaunchdLabel(id: String) throws -> String {
+        try macOSRuntimeLaunchdLabel(id: id, domain: ServiceManager.getDomainString())
+    }
+
+    private static func isMacOSRuntimeRegistered(id: String) -> Bool {
+        ((try? ServiceManager.isRegistered(fullServiceLabel: macOSRuntimeServiceLabel(id: id))) ?? false)
+    }
+
+    private static func registerMacOSRuntimeIfNeeded(
+        id: String,
+        configuration: ContainerConfiguration,
+        context: MacOSRuntimePluginContext
+    ) throws {
+        guard !isMacOSRuntimeRegistered(id: id) else { return }
+        try context.loader.registerWithLaunchd(
+            plugin: context.plugin,
+            pluginStateRoot: try macOSContainerRoot(id: id),
+            args: [
+                "start",
+                "--root", try macOSContainerRoot(id: id).path,
+                "--uuid", configuration.id,
+                "--debug"
+            ],
+            instanceId: id
+        )
+    }
+
+    private static func deregisterMacOSRuntime(
+        id: String,
+        context: MacOSRuntimePluginContext? = nil
+    ) {
+        if let context {
+            try? context.loader.deregisterWithLaunchd(plugin: context.plugin, instanceId: id)
+            return
+        }
+        guard let label = try? macOSRuntimeLaunchdLabel(id: id) else { return }
+        try? ServiceManager.deregister(fullServiceLabel: label)
+    }
+
+    private static func deregisterMacOSSidecar(id: String) {
+        try? ServiceManager.deregister(fullServiceLabel: macOSSidecarLaunchdLabel(id: id))
+    }
+
+    private static func resetMacOSRuntime(id: String, context: MacOSRuntimePluginContext? = nil) async {
+        if let client = try? await SandboxClient.create(id: id, runtime: macOSRuntimeHandler) {
+            try? await client.shutdown()
+        }
+        deregisterMacOSSidecar(id: id)
+        deregisterMacOSRuntime(id: id, context: context)
+    }
+
+    private static func registeredMacOSSandboxClient(
+        id: String,
+        configuration: ContainerConfiguration,
+        context: MacOSRuntimePluginContext
+    ) async throws -> SandboxClient {
+        try registerMacOSRuntimeIfNeeded(id: id, configuration: configuration, context: context)
+        return try await SandboxClient.create(id: id, runtime: configuration.runtimeHandler)
+    }
+
+    private static func liveMacOSSandbox(
+        id: String,
+        configuration: ContainerConfiguration
+    ) async throws -> (client: SandboxClient, snapshot: SandboxSnapshot) {
+        guard isMacOSRuntimeRegistered(id: id) else {
+            throw ContainerSDKServiceError.sandboxIsStopping(id)
+        }
+        let client = try await SandboxClient.create(id: id, runtime: configuration.runtimeHandler)
+        return (client, try await client.state())
+    }
+
+    private static func startMacOSSandbox(
+        id: String,
+        configuration: ContainerConfiguration,
+        presentGUI: Bool
+    ) async throws {
+        if let live = try? await liveMacOSSandbox(id: id, configuration: configuration) {
+            switch live.snapshot.status {
+            case .running:
+                if presentGUI {
+                    try await live.client.showGUI()
+                }
+                return
+            case .stopping:
+                throw ContainerSDKServiceError.sandboxIsStopping(id)
+            case .stopped, .unknown:
+                await resetMacOSRuntime(id: id)
+            }
+        } else if isMacOSRuntimeRegistered(id: id) {
+            await resetMacOSRuntime(id: id)
+        }
+
+        let context = try macOSRuntimePluginContext()
+        let client = try await registeredMacOSSandboxClient(id: id, configuration: configuration, context: context)
+        do {
+            try await client.createSandbox()
+            try await client.startSandbox(stdio: [nil, nil, nil], presentGUI: presentGUI)
+        } catch {
+            await resetMacOSRuntime(id: id, context: context)
+            throw error
+        }
+    }
+
+    private static func startedMacOSSandboxClient(
+        id: String,
+        configuration: ContainerConfiguration
+    ) async throws -> SandboxClient {
+        if let live = try? await liveMacOSSandbox(id: id, configuration: configuration),
+           live.snapshot.status == .running {
+            return live.client
+        }
+        try await startMacOSSandbox(id: id, configuration: configuration, presentGUI: false)
+        let live = try await liveMacOSSandbox(id: id, configuration: configuration)
+        guard live.snapshot.status == .running else {
+            throw ContainerSDKServiceError.sandboxIsStopping(id)
+        }
+        return live.client
+    }
+
+    private static func preparedMacOSSandboxClient(
+        id: String,
+        configuration: ContainerConfiguration
+    ) async throws -> SandboxClient {
+        let context = try macOSRuntimePluginContext()
+        let client = try await registeredMacOSSandboxClient(id: id, configuration: configuration, context: context)
+        try await client.createSandbox()
+        return client
+    }
+
+    private static func stopMacOSSandbox(id: String, configuration: ContainerConfiguration) async throws {
+        guard isMacOSRuntimeRegistered(id: id) else { return }
+        let context = try? macOSRuntimePluginContext()
+        var stopError: Error?
+        if let client = try? await SandboxClient.create(id: id, runtime: configuration.runtimeHandler) {
+            do {
+                try await client.stop(options: .default)
+            } catch {
+                stopError = error
+            }
+            try? await client.shutdown()
+        }
+        deregisterMacOSSidecar(id: id)
+        deregisterMacOSRuntime(id: id, context: context)
+        if let stopError {
+            Self.logger.error("macOS sandbox stop reported an error after cleanup: id=\(id, privacy: .public) error=\(String(describing: stopError), privacy: .public)")
+        }
     }
 
     private static func startContainer(
@@ -969,25 +1208,57 @@ actor ContainerSDKService {
         return String(value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
     }
 
-    private func loadSandboxDetail(id: String) async -> SandboxDetail {
-        do {
-            let kit = Self.makeKit()
-            let container = try await kit.getContainer(id: id)
-            guard container.configuration.runtimeHandler == Self.macOSRuntimeHandler else {
-                return Self.makeSandboxDetail(id: id, snapshot: container)
-            }
+    private static func resolvedSandboxSnapshot(
+        from snapshot: ContainerSnapshot,
+        kit: ContainerKit
+    ) async -> (snapshot: ContainerSnapshot, detail: SandboxDetail) {
+        guard snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler else {
+            return (snapshot, Self.makeSandboxDetail(id: snapshot.id, snapshot: snapshot))
+        }
 
-            let snapshot = try await kit.inspectSandbox(id: id)
-            let logPaths = try? await kit.sandboxLogPaths(id: id)
-            return Self.makeSandboxDetail(id: id, snapshot: snapshot, logPaths: logPaths)
-        } catch {
-            return SandboxDetail(
-                sandboxID: id,
-                networks: [],
-                workloads: [],
-                logPaths: nil,
-                lastError: error.openBoxMessage
+        let logPaths = try? await kit.sandboxLogPaths(id: snapshot.id)
+        func stoppedSnapshot(lastError: String? = nil) -> (snapshot: ContainerSnapshot, detail: SandboxDetail) {
+            var stopped = snapshot
+            stopped.status = .stopped
+            stopped.networks = []
+            stopped.startedDate = nil
+            return (
+                stopped,
+                Self.makeSandboxDetail(
+                    id: snapshot.id,
+                    snapshot: stopped,
+                    logPaths: logPaths,
+                    lastError: lastError
+                )
             )
+        }
+
+        guard Self.isMacOSRuntimeRegistered(id: snapshot.id) else {
+            return stoppedSnapshot()
+        }
+
+        do {
+            let live = try await Self.liveMacOSSandbox(id: snapshot.id, configuration: snapshot.configuration)
+            let sandboxSnapshot = live.snapshot
+            if sandboxSnapshot.status == .stopped || sandboxSnapshot.status == .unknown {
+                await Self.resetMacOSRuntime(id: snapshot.id)
+                return stoppedSnapshot()
+            }
+            var liveSnapshot = sandboxSnapshot.containers.first(where: { $0.id == snapshot.id })
+                ?? sandboxSnapshot.containers.first
+                ?? snapshot
+            liveSnapshot.status = sandboxSnapshot.status
+            liveSnapshot.networks = sandboxSnapshot.networks
+            if sandboxSnapshot.status != .running {
+                liveSnapshot.startedDate = nil
+            }
+            return (
+                liveSnapshot,
+                Self.makeSandboxDetail(id: snapshot.id, snapshot: sandboxSnapshot, logPaths: logPaths)
+            )
+        } catch {
+            await Self.resetMacOSRuntime(id: snapshot.id)
+            return stoppedSnapshot(lastError: error.openBoxMessage)
         }
     }
 
@@ -1128,7 +1399,9 @@ actor ContainerSDKService {
 
     private static func makeSandboxDetail(
         id: String,
-        snapshot: ContainerSnapshot
+        snapshot: ContainerSnapshot,
+        logPaths: SandboxLogPaths? = nil,
+        lastError: String? = nil
     ) -> SandboxDetail {
         let networks = snapshot.networks.map { attachment in
             SandboxNetworkRecord(
@@ -1140,13 +1413,14 @@ actor ContainerSDKService {
                 dnsServers: attachment.dns?.nameservers ?? []
             )
         }
+        let logRecord = makeSandboxLogRecord(from: logPaths)
 
         return SandboxDetail(
             sandboxID: id,
             networks: networks,
             workloads: [],
-            logPaths: nil,
-            lastError: nil
+            logPaths: logRecord,
+            lastError: lastError
         )
     }
 
@@ -1186,14 +1460,7 @@ actor ContainerSDKService {
                 lhs.startedAt ?? .distantPast > rhs.startedAt ?? .distantPast
             }
 
-        let logRecord = logPaths.map {
-            SandboxLogRecord(
-                eventLogPath: $0.eventLogPath,
-                bootLogPath: $0.bootLogPath,
-                guestAgentLogPath: $0.guestAgentLogPath,
-                guestAgentStderrLogPath: $0.guestAgentStderrLogPath
-            )
-        }
+        let logRecord = makeSandboxLogRecord(from: logPaths)
 
         return SandboxDetail(
             sandboxID: id,
@@ -1202,6 +1469,17 @@ actor ContainerSDKService {
             logPaths: logRecord,
             lastError: nil
         )
+    }
+
+    private static func makeSandboxLogRecord(from logPaths: SandboxLogPaths?) -> SandboxLogRecord? {
+        logPaths.map {
+            SandboxLogRecord(
+                eventLogPath: $0.eventLogPath,
+                bootLogPath: $0.bootLogPath,
+                guestAgentLogPath: $0.guestAgentLogPath,
+                guestAgentStderrLogPath: $0.guestAgentStderrLogPath
+            )
+        }
     }
 
     private static func describe(process: ProcessConfiguration) -> String {
