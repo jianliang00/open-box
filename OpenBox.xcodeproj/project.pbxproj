@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A41 /* ContainerKit */; };
 		70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */; };
+		70A1B2C3D4E5F60718293A45 /* ContainerKitServices in Frameworks */ = {isa = PBXBuildFile; productRef = 70A1B2C3D4E5F60718293A46 /* ContainerKitServices */; };
 		70B2C3D4E5F60718293A50 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 70B2C3D4E5F60718293A52 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
@@ -60,6 +61,7 @@
 			files = (
 				70A1B2C3D4E5F60718293A43 /* ContainerAPIClient in Frameworks */,
 				70A1B2C3D4E5F60718293A42 /* ContainerKit in Frameworks */,
+				70A1B2C3D4E5F60718293A45 /* ContainerKitServices in Frameworks */,
 				70B2C3D4E5F60718293A50 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -111,6 +113,7 @@
 				40992CDA2F24F5AB008AEFEB /* Sources */,
 				40992CDB2F24F5AB008AEFEB /* Frameworks */,
 				40992CDC2F24F5AB008AEFEB /* Resources */,
+				70C4D5E6F708192A3B4C5D6E /* Embed Container Runtime */,
 			);
 			buildRules = (
 			);
@@ -123,6 +126,7 @@
 			packageProductDependencies = (
 				70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */,
 				70A1B2C3D4E5F60718293A41 /* ContainerKit */,
+				70A1B2C3D4E5F60718293A46 /* ContainerKitServices */,
 				70B2C3D4E5F60718293A52 /* SwiftTerm */,
 			);
 			productName = OpenBox;
@@ -208,7 +212,7 @@
 			mainGroup = 40992CD52F24F5AB008AEFEB;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */,
+				70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */,
 				70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -246,6 +250,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		70C4D5E6F708192A3B4C5D6E /* Embed Container Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed-container-runtime.sh",
+				"$(SRCROOT)/../container/Package.swift",
+			);
+			name = "Embed Container Runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/container/bin/container-apiserver",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "\"$SRCROOT/Scripts/embed-container-runtime.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		40992CDA2F24F5AB008AEFEB /* Sources */ = {
@@ -412,6 +441,7 @@
 				DEVELOPMENT_TEAM = PAG42SCX8D;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -451,6 +481,7 @@
 				DEVELOPMENT_TEAM = PAG42SCX8D;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -610,15 +641,14 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jianliang00/container";
-			requirement = {
-				kind = exactVersion;
-				version = 0.0.4;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../container;
 		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
 		70B2C3D4E5F60718293A51 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -632,13 +662,18 @@
 /* Begin XCSwiftPackageProductDependency section */
 		70A1B2C3D4E5F60718293A41 /* ContainerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			package = 70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */;
 			productName = ContainerKit;
 		};
 		70A1B2C3D4E5F60718293A44 /* ContainerAPIClient */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 70A1B2C3D4E5F60718293A40 /* XCRemoteSwiftPackageReference "container" */;
+			package = 70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */;
 			productName = ContainerAPIClient;
+		};
+		70A1B2C3D4E5F60718293A46 /* ContainerKitServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70A1B2C3D4E5F60718293A40 /* XCLocalSwiftPackageReference "../container" */;
+			productName = ContainerKitServices;
 		};
 		70B2C3D4E5F60718293A52 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;

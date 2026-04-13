@@ -521,19 +521,23 @@ final class AppState: ObservableObject {
 
         switch sandbox.status {
         case .running:
-            banner = AppBanner(
-                title: "Desktop is already running",
-                message: "The container runtime owns the native VM window. If it was closed, stop and start the sandbox to recreate it.",
-                style: .info
-            )
+            runMutation(activity: "Opening desktop \(sandbox.name)") { [service] in
+                try await service.launchDesktop(id: sandboxID)
+                await self.refreshAll()
+                self.banner = AppBanner(
+                    title: "Desktop opened",
+                    message: "The desktop window is open for \(sandbox.name). Closing the window leaves the sandbox running.",
+                    style: .info
+                )
+            }
         case .stopped, .unknown, .error:
             mutateSandbox(id: sandboxID) { $0.status = .starting }
             runMutation(activity: "Launching desktop \(sandbox.name)") { [service] in
-                try await service.startSandbox(id: sandboxID)
+                try await service.launchDesktop(id: sandboxID)
                 await self.refreshAll()
                 self.banner = AppBanner(
                     title: "Desktop launched",
-                    message: "The runtime opened a native VM window for \(sandbox.name).",
+                    message: "The runtime started \(sandbox.name) and opened its desktop window.",
                     style: .info
                 )
             }

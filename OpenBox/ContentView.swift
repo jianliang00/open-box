@@ -1060,9 +1060,9 @@ struct SandboxDesktopPanel: View {
             return "Desktop GUI was not enabled at creation time"
         }
         if sandbox.status.isRunning {
-            return "Desktop window is managed by the runtime"
+            return "Desktop window can be opened on demand"
         }
-        return "Launch opens a native VM desktop window"
+        return "Launch opens the native VM desktop window"
     }
 
     private var desktopMessage: String {
@@ -1073,9 +1073,9 @@ struct SandboxDesktopPanel: View {
             return "Create a new macOS guest sandbox with Enable desktop GUI turned on to use the runtime-managed desktop window."
         }
         if sandbox.status.isRunning {
-            return "The sidecar opens the Virtualization desktop as a separate native window when the sandbox starts. If the window was closed, stop and start the sandbox to recreate it."
+            return "Open or reopen the native Virtualization desktop window without changing the sandbox state. Closing the window leaves the sandbox running."
         }
-        return "Starting this sandbox asks the container runtime to present the macOS guest in a separate native window."
+        return "Starting the sandbox normally keeps the desktop hidden. Launch Desktop starts or opens the native window only when you ask for it."
     }
 
     private var desktopStatusText: String {
@@ -1560,7 +1560,7 @@ struct CreateSandboxSheet: View {
                         Toggle("Enable desktop GUI for macOS guests", isOn: $draft.desktopGUIEnabled)
                             .toggleStyle(.switch)
 
-                        Text("When the selected image resolves to a macOS guest, the runtime will attach keyboard, pointer, and graphics devices and open a native VM window when the sandbox starts.")
+                        Text("When the selected image resolves to a macOS guest, the runtime will attach keyboard, pointer, and graphics devices so the desktop can be opened later from the sandbox detail view.")
                             .font(AppTheme.metadataFont)
                             .foregroundColor(AppTheme.outline)
                             .fixedSize(horizontal: false, vertical: true)

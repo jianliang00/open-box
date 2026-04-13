@@ -7,9 +7,11 @@
 
 import ContainerAPIClient
 import ContainerKit
+import ContainerKitServices
 import ContainerSandboxServiceClient
 import ContainerizationOS
 import Foundation
+import OSLog
 
 struct SandboxInventory {
     var sandboxes: [SandboxRecord]
@@ -26,6 +28,9 @@ enum ContainerSDKServiceError: LocalizedError {
     case invalidWorkspacePath(String)
     case commandFailed(code: Int32, output: String)
     case interactiveShellRequiresMacOSGuest
+    case desktopRequiresMacOSGuest
+    case desktopGUIIsDisabled
+    case bundledContainerRuntimeMissing(String)
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +42,12 @@ enum ContainerSDKServiceError: LocalizedError {
             return "Command exited with code \(code).\(output.isEmpty ? "" : " \(output)")"
         case .interactiveShellRequiresMacOSGuest:
             return "Interactive shell workloads are currently supported for macOS sandboxes only."
+        case .desktopRequiresMacOSGuest:
+            return "Desktop GUI is supported only for macOS guest sandboxes."
+        case .desktopGUIIsDisabled:
+            return "Desktop GUI is not enabled for this sandbox."
+        case .bundledContainerRuntimeMissing(let path):
+            return "OpenBox bundled container runtime is missing or incomplete: \(path)"
         }
     }
 }
@@ -197,6 +208,11 @@ final class InteractiveWorkloadIO: @unchecked Sendable {
 }
 
 actor ContainerSDKService {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "OpenBox",
+        category: "ContainerSDK"
+    )
+
     private static let linuxRuntimeHandler = "container-runtime-linux"
     private static let macOSRuntimeHandler = "container-runtime-macos"
     private static let managedLabelKey = "com.hellogeek.openbox.managed"
@@ -220,6 +236,7 @@ actor ContainerSDKService {
     private static let defaultPathEnvironment = "PATH=\(defaultPathEntries.joined(separator: ":"))"
 
     private let imageCatalog = ImageCatalogStore()
+    private var containerServicesReady = false
 
     static func makeInteractiveTerminalEnvironment(baseEnvironment: [String], shellPath: String) -> [String] {
         var order: [String] = []
@@ -292,6 +309,7 @@ actor ContainerSDKService {
     }
 
     func systemStatus() async throws -> SystemStatus {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let health = try await kit.health()
         return SystemStatus(
@@ -305,6 +323,7 @@ actor ContainerSDKService {
     }
 
     func loadImages() async throws -> [OCIImageRecord] {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let images = try await kit.listImages()
         var records: [OCIImageRecord] = []
@@ -332,6 +351,7 @@ actor ContainerSDKService {
     }
 
     func loadSandboxes() async throws -> SandboxInventory {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let containerSnapshots = try await kit.listContainers()
             .filter { $0.configuration.labels[Self.managedLabelKey] == "true" }
@@ -352,6 +372,7 @@ actor ContainerSDKService {
     }
 
     func loadSandbox(id: String) async throws -> SandboxSnapshotRecord {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: id)
         let detail = await loadSandboxDetail(id: id)
@@ -367,6 +388,7 @@ actor ContainerSDKService {
             throw ContainerSDKServiceError.emptyReference
         }
 
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let image = try await kit.pullImage(reference: trimmed)
         return await Self.makeImageRecord(from: image, availability: .downloaded)
@@ -383,6 +405,7 @@ actor ContainerSDKService {
 
     func deleteImage(reference: String, deleteDownloadedImage: Bool) async throws {
         if deleteDownloadedImage {
+            try await ensureContainerServicesReady()
             let kit = Self.makeKit()
             try await kit.deleteImage(reference: reference, garbageCollect: true)
         }
@@ -390,24 +413,59 @@ actor ContainerSDKService {
     }
 
     func createSandbox(from draft: SandboxDraft) async throws -> String {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let image = try await kit.getImage(reference: draft.imageReference)
         let sandboxID = Self.makeSandboxID(name: draft.name)
         let client = Self.makeClient()
-        _ = try await Self.createContainer(id: sandboxID, image: image, draft: draft, client: client)
+        let configuration = try await Self.createContainer(id: sandboxID, image: image, draft: draft, client: client)
         if draft.autoStart {
-            try await Self.startContainer(id: sandboxID, client: client)
+            if configuration.runtimeHandler == Self.macOSRuntimeHandler {
+                Self.logger.info("Auto-starting macOS sandbox without Desktop GUI: id=\(sandboxID, privacy: .public)")
+                try await Self.startContainer(id: sandboxID, client: client, presentGUI: false)
+            } else {
+                Self.logger.info("Auto-starting non-macOS sandbox: id=\(sandboxID, privacy: .public) runtime=\(configuration.runtimeHandler, privacy: .public)")
+                try await Self.startContainer(id: sandboxID, client: client)
+            }
         }
         return sandboxID
     }
 
     func startSandbox(id: String) async throws {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
-        _ = try await kit.getContainer(id: id)
-        try await Self.startContainer(id: id, client: Self.makeClient())
+        let snapshot = try await kit.getContainer(id: id)
+        if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
+            Self.logger.info("Starting macOS sandbox without Desktop GUI: id=\(id, privacy: .public)")
+            try await Self.startContainer(id: id, client: Self.makeClient(), presentGUI: false)
+        } else {
+            Self.logger.info("Starting non-macOS sandbox: id=\(id, privacy: .public) runtime=\(snapshot.configuration.runtimeHandler, privacy: .public)")
+            try await Self.startContainer(id: id, client: Self.makeClient())
+        }
+    }
+
+    func launchDesktop(id: String) async throws {
+        try await ensureContainerServicesReady()
+        let kit = Self.makeKit()
+        let snapshot = try await kit.getContainer(id: id)
+        guard snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler else {
+            throw ContainerSDKServiceError.desktopRequiresMacOSGuest
+        }
+        guard snapshot.configuration.macosGuest?.guiEnabled == true else {
+            throw ContainerSDKServiceError.desktopGUIIsDisabled
+        }
+
+        if SandboxStatus(runtimeRawValue: snapshot.status.rawValue) == .running {
+            Self.logger.info("Showing Desktop GUI for running sandbox: id=\(id, privacy: .public)")
+            try await kit.showSandboxGUI(id: id)
+        } else {
+            Self.logger.info("Starting macOS sandbox with Desktop GUI: id=\(id, privacy: .public)")
+            try await Self.startContainer(id: id, client: Self.makeClient(), presentGUI: true)
+        }
     }
 
     func stopSandbox(id: String) async throws {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: id)
         if snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler {
@@ -418,11 +476,13 @@ actor ContainerSDKService {
     }
 
     func removeSandbox(id: String) async throws {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         try await kit.deleteContainer(id: id, force: true)
     }
 
     func runWorkload(from draft: WorkloadDraft) async throws -> WorkloadLaunch {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: draft.sandboxID)
         let isMacOSGuest = snapshot.configuration.runtimeHandler == Self.macOSRuntimeHandler
@@ -532,6 +592,7 @@ actor ContainerSDKService {
     func resizeTerminal(sandboxID: String, workloadID: String, columns: Int, rows: Int) async throws {
         guard columns > 0, rows > 0 else { return }
 
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         let snapshot = try await kit.getContainer(id: sandboxID)
         let client = try await SandboxClient.create(id: sandboxID, runtime: snapshot.configuration.runtimeHandler)
@@ -545,13 +606,98 @@ actor ContainerSDKService {
     }
 
     func stopWorkload(sandboxID: String, workloadID: String) async throws {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         try await kit.stopWorkload(sandboxID: sandboxID, workloadID: workloadID, options: .default)
     }
 
     func removeWorkload(sandboxID: String, workloadID: String) async throws {
+        try await ensureContainerServicesReady()
         let kit = Self.makeKit()
         try await kit.removeWorkload(sandboxID: sandboxID, workloadID: workloadID)
+    }
+
+    private func ensureContainerServicesReady() async throws {
+        let services = try Self.makeBundledContainerServices()
+        if containerServicesReady, await Self.isBundledServiceRunning(services: services) {
+            return
+        }
+
+        containerServicesReady = false
+        Self.logger.info(
+            "Ensuring bundled container services: installRoot=\(services.installRootURL.path, privacy: .public)"
+        )
+        try await services.ensureRunning(timeout: .seconds(30))
+
+        let health = try await Self.makeKit().health(timeout: .seconds(5))
+        guard services.owns(health) else {
+            throw Self.unexpectedContainerServiceError(health: health, services: services)
+        }
+
+        containerServicesReady = true
+    }
+
+    private static func isBundledServiceRunning(services: ContainerKitServices) async -> Bool {
+        guard let health = try? await makeKit().health(timeout: .seconds(2)) else {
+            return false
+        }
+        return services.owns(health)
+    }
+
+    private static func makeBundledContainerServices() throws -> ContainerKitServices {
+        let installRoot = try bundledContainerInstallRoot()
+        return ContainerKitServices(
+            appRoot: try bundledContainerAppRoot(),
+            installation: ContainerInstallation(
+                installRoot: installRoot,
+                apiServerExecutableURL: installRoot.appendingPathComponent("bin/container-apiserver")
+            )
+        )
+    }
+
+    private static func bundledContainerInstallRoot() throws -> URL {
+        guard let resourceURL = Foundation.Bundle.main.resourceURL else {
+            throw ContainerSDKServiceError.bundledContainerRuntimeMissing("Bundle resources")
+        }
+
+        let installRoot = resourceURL.appendingPathComponent("container", isDirectory: true)
+        let apiServerURL = installRoot.appendingPathComponent("bin/container-apiserver")
+        guard FileManager.default.isExecutableFile(atPath: apiServerURL.path) else {
+            throw ContainerSDKServiceError.bundledContainerRuntimeMissing(apiServerURL.path)
+        }
+        return installRoot
+    }
+
+    private static func bundledContainerAppRoot() throws -> URL {
+        let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let bundleID = Foundation.Bundle.main.bundleIdentifier ?? "OpenBox"
+        return applicationSupport
+            .appendingPathComponent(bundleID, isDirectory: true)
+            .appendingPathComponent("container", isDirectory: true)
+    }
+
+    private static func unexpectedContainerServiceError(
+        health: SystemHealth,
+        services: ContainerKitServices
+    ) -> NSError {
+        NSError(
+            domain: "OpenBox.ContainerSDKService",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: """
+                OpenBox connected to a container service that is not owned by this app bundle.
+                expected appRoot: \(services.appRootURL.path)
+                actual appRoot: \(health.appRoot.path)
+                expected installRoot: \(services.installRootURL.path)
+                actual installRoot: \(health.installRoot.path)
+                """
+            ]
+        )
     }
 
     private static func makeKit() -> ContainerKit {
@@ -564,9 +710,11 @@ actor ContainerSDKService {
 
     private static func startContainer(
         id: String,
-        client: ContainerClient
+        client: ContainerClient,
+        presentGUI: Bool = true
     ) async throws {
-        let process = try await client.bootstrap(id: id, stdio: [nil, nil, nil])
+        Self.logger.info("Bootstrapping container: id=\(id, privacy: .public) presentGUI=\(presentGUI, privacy: .public)")
+        let process = try await client.bootstrap(id: id, stdio: [nil, nil, nil], presentGUI: presentGUI)
         try await process.start()
     }
 

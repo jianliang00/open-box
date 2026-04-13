@@ -1,5 +1,5 @@
 {
-  "originHash" : "3a0bbe62e3477b63eeab0cd7eee96c6c3a6156230c1f5ec00f13c5dc957945e1",
+  "originHash" : "ea4acaf48b53708f8f15d8389d5ea23c46e7f72ea431cd0bf378554cc6d0d615",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "3a5b74a58782c3b4c1f0bc75e9b67b10c2494e8f",
         "version" : "1.33.1"
-      }
-    },
-    {
-      "identity" : "container",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jianliang00/container",
-      "state" : {
-        "revision" : "4e36e58036033fc6644ef6036096fabadbbff22f",
-        "version" : "0.0.4"
       }
     },
     {
