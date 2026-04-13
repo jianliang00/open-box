@@ -9,6 +9,8 @@ import ContainerAPIClient
 import ContainerKit
 import ContainerKitServices
 import ContainerSandboxServiceClient
+import Containerization
+import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import OSLog
@@ -31,6 +33,11 @@ enum ContainerSDKServiceError: LocalizedError {
     case desktopRequiresMacOSGuest
     case desktopGUIIsDisabled
     case bundledContainerRuntimeMissing(String)
+    case registryHostUnavailable
+    case registryCredentialsIncomplete
+    case registrySignInRequired(host: String)
+    case registrySignInFailed(host: String)
+    case registryCredentialsUnavailable(host: String)
 
     var errorDescription: String? {
         switch self {
@@ -48,8 +55,24 @@ enum ContainerSDKServiceError: LocalizedError {
             return "Desktop GUI is not enabled for this sandbox."
         case .bundledContainerRuntimeMissing(let path):
             return "OpenBox bundled container runtime is missing or incomplete: \(path)"
+        case .registryHostUnavailable:
+            return "Enter an image reference that includes a registry host before saving sign-in details."
+        case .registryCredentialsIncomplete:
+            return "Enter the registry username and access token before pulling with sign-in."
+        case .registrySignInRequired(let host):
+            return "This image requires sign-in to \(host). Pull it again with registry sign-in details in OpenBox."
+        case .registrySignInFailed(let host):
+            return "Registry sign-in for \(host) was rejected. Check the username and access token, then try again."
+        case .registryCredentialsUnavailable(let host):
+            return "OpenBox hit a registry sign-in lookup failure for \(host). Public images are pulled anonymously; private images need sign-in details in OpenBox."
         }
     }
+}
+
+struct RegistryCredentials: Hashable {
+    var host: String
+    var username: String
+    var token: String
 }
 
 enum InteractiveWorkloadInputError: LocalizedError {
@@ -219,6 +242,8 @@ actor ContainerSDKService {
     private static let displayNameLabelKey = "com.hellogeek.openbox.display-name"
     private static let sourceImageLabelKey = "com.hellogeek.openbox.source-image"
     private static let platformLabelKey = "com.hellogeek.openbox.platform"
+    private static let dockerReferenceTypeAnnotation = "vnd.docker.reference.type"
+    private static let attestationManifestReferenceType = "attestation-manifest"
     private static let defaultGuestWorkspacePath = "/Users/Shared/workspace"
     private static let defaultLinuxWorkspacePath = "/workspace"
     private static let defaultMacOSShellPath = "/bin/zsh"
@@ -382,16 +407,20 @@ actor ContainerSDKService {
         )
     }
 
-    func pullImage(reference: String) async throws -> OCIImageRecord {
+    func pullImage(reference: String, credentials: RegistryCredentials? = nil) async throws -> OCIImageRecord {
         let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw ContainerSDKServiceError.emptyReference
         }
 
         try await ensureContainerServicesReady()
-        let kit = Self.makeKit()
-        let image = try await kit.pullImage(reference: trimmed)
-        return await Self.makeImageRecord(from: image, availability: .downloaded)
+
+        do {
+            let image = try await Self.pullImageFromRegistry(reference: trimmed, credentials: credentials)
+            return await Self.makeImageRecord(from: image, availability: .downloaded)
+        } catch {
+            throw Self.pullImageError(error, reference: trimmed, credentialsWereProvided: credentials != nil)
+        }
     }
 
     func addImageReference(reference: String) async throws {
@@ -414,6 +443,7 @@ actor ContainerSDKService {
 
     func createSandbox(from draft: SandboxDraft) async throws -> String {
         try await ensureContainerServicesReady()
+        try await Self.normalizeRuntimeImageReferenceIfNeeded(reference: draft.imageReference)
         let kit = Self.makeKit()
         let image = try await kit.getImage(reference: draft.imageReference)
         let sandboxID = Self.makeSandboxID(name: draft.name)
@@ -718,9 +748,8 @@ actor ContainerSDKService {
         try await process.start()
     }
 
-    private static func shouldUseMacOSIdleProcess(image: Image) async throws -> Bool {
-        let index = try await image.index()
-        let platforms = index.manifests.compactMap(\.platform)
+    private static func shouldUseMacOSIdleProcess(image: ClientImage) async throws -> Bool {
+        let platforms = try await runtimePlatforms(for: image)
         let hasLinuxForHost = platforms.contains { platform in
             platform.os == "linux" && platform.architecture == Self.hostOCIArchitecture()
         }
@@ -742,6 +771,148 @@ actor ContainerSDKService {
         }
 
         return hasDarwinArm64 && !hasLinuxForHost && !operatingSystems.contains("linux")
+    }
+
+    private static func runtimePlatforms(in index: Index) -> [Platform] {
+        var seen = Set<Platform>()
+        var platforms: [Platform] = []
+
+        for descriptor in index.manifests {
+            guard !isAttestationManifest(descriptor),
+                  let platform = descriptor.platform,
+                  seen.insert(platform).inserted else {
+                continue
+            }
+            platforms.append(platform)
+        }
+
+        return platforms
+    }
+
+    private static func runtimePlatforms(for image: ClientImage) async throws -> [Platform] {
+        let contentStore = try localContentStore()
+        return await runtimePlatforms(from: image.descriptor, contentStore: contentStore)
+    }
+
+    private static func runtimePlatforms<C: ContentStore>(in index: Index, contentStore: C) async -> [Platform] {
+        var seen = Set<Platform>()
+        var platforms: [Platform] = []
+
+        for descriptor in index.manifests {
+            let descriptorPlatforms = await runtimePlatforms(from: descriptor, contentStore: contentStore)
+            for platform in descriptorPlatforms where seen.insert(platform).inserted {
+                platforms.append(platform)
+            }
+        }
+
+        return platforms
+    }
+
+    private static func runtimePlatforms<C: ContentStore>(from descriptor: Descriptor, contentStore: C) async -> [Platform] {
+        guard !isAttestationManifest(descriptor) else { return [] }
+
+        if let platform = descriptor.platform {
+            return [platform]
+        }
+
+        if isImageIndexMediaType(descriptor.mediaType) {
+            let nestedIndex: Index?
+            do {
+                nestedIndex = try await contentStore.get(digest: descriptor.digest)
+            } catch {
+                return []
+            }
+            guard let nestedIndex else { return [] }
+            return await runtimePlatforms(in: nestedIndex, contentStore: contentStore)
+        }
+
+        guard isImageManifestMediaType(descriptor.mediaType) else { return [] }
+
+        let manifest: Manifest?
+        do {
+            manifest = try await contentStore.get(digest: descriptor.digest)
+        } catch {
+            return []
+        }
+        guard let manifest else { return [] }
+
+        let config: ContainerizationOCI.Image?
+        do {
+            config = try await contentStore.get(digest: manifest.config.digest)
+        } catch {
+            return []
+        }
+        guard let config else { return [] }
+
+        return [
+            Platform(
+                arch: config.architecture,
+                os: config.os,
+                osVersion: config.osVersion,
+                osFeatures: config.osFeatures,
+                variant: config.variant
+            )
+        ]
+    }
+
+    static func runtimePlatformDescriptions(in index: Index) -> [String] {
+        runtimePlatforms(in: index)
+            .map(\.description)
+            .sorted()
+    }
+
+    static func runtimePlatformDescriptions<C: ContentStore>(
+        from descriptor: Descriptor,
+        contentStore: C
+    ) async -> [String] {
+        let platforms = await runtimePlatforms(from: descriptor, contentStore: contentStore)
+        return Array(Set(platforms.map(\.description))).sorted()
+    }
+
+    static func runtimeImageDescriptor<C: ContentStore>(
+        from descriptor: Descriptor,
+        contentStore: C
+    ) async -> Descriptor {
+        var current = descriptor
+        var visited = Set<String>()
+
+        while isImageIndexMediaType(current.mediaType), visited.insert(current.digest).inserted {
+            let index: Index?
+            do {
+                index = try await contentStore.get(digest: current.digest)
+            } catch {
+                return current
+            }
+
+            let runtimeDescriptors = index?.manifests.filter { !isAttestationManifest($0) } ?? []
+            guard runtimeDescriptors.count == 1,
+                  let nested = runtimeDescriptors.first,
+                  isImageIndexMediaType(nested.mediaType) else {
+                return current
+            }
+
+            current = nested
+        }
+
+        return current
+    }
+
+    private static func isAttestationManifest(_ descriptor: Descriptor) -> Bool {
+        descriptor.annotations?[dockerReferenceTypeAnnotation] == attestationManifestReferenceType
+    }
+
+    private static func isImageIndexMediaType(_ mediaType: String) -> Bool {
+        mediaType == MediaTypes.index || mediaType == MediaTypes.dockerManifestList
+    }
+
+    private static func isImageManifestMediaType(_ mediaType: String) -> Bool {
+        mediaType == MediaTypes.imageManifest || mediaType == MediaTypes.dockerManifest
+    }
+
+    private static func localContentStore() throws -> LocalContentStore {
+        try LocalContentStore(
+            path: bundledContainerAppRoot().appendingPathComponent("content", isDirectory: true)
+        )
     }
 
     private static func hostOCIArchitecture() -> String {
@@ -848,7 +1019,7 @@ actor ContainerSDKService {
 
     private static func createContainer(
         id: String,
-        image: Image,
+        image: ClientImage,
         draft: SandboxDraft,
         client: ContainerClient
     ) async throws -> ContainerConfiguration {
@@ -1037,7 +1208,152 @@ actor ContainerSDKService {
         ([process.executable] + process.arguments).joined(separator: " ")
     }
 
-    private static func makeImageRecord(from image: Image, availability: OCIImageAvailability) async -> OCIImageRecord {
+    static func registryHost(forImageReference reference: String) -> String? {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalized = (try? ClientImage.normalizeReference(trimmed)) ?? trimmed
+        guard let separator = normalized.firstIndex(of: "/") else { return nil }
+
+        let host = String(normalized[..<separator])
+        return host.contains(".") || host.contains(":") || host == "localhost" ? host : nil
+    }
+
+    static func registryKeychainFailureHost(fromMessage message: String) -> String? {
+        guard message.contains("error querying keychain"),
+              message.contains("status: -25293") else {
+            return nil
+        }
+
+        return host(after: "error querying keychain for ", in: message)
+    }
+
+    private static func pullImageFromRegistry(
+        reference: String,
+        credentials: RegistryCredentials?
+    ) async throws -> Containerization.Image {
+        let normalizedReference = try ClientImage.normalizeReference(reference)
+        let authentication = try registryAuthentication(for: credentials)
+        let imageStore = try Containerization.ImageStore(path: bundledContainerAppRoot())
+        let image = try await imageStore.pull(
+            reference: normalizedReference,
+            insecure: shouldUseInsecureRegistryTransport(for: normalizedReference),
+            auth: authentication,
+            maxConcurrentDownloads: 3
+        )
+        return try await normalizeRuntimeImageIfNeeded(image, in: imageStore)
+    }
+
+    @discardableResult
+    private static func normalizeRuntimeImageReferenceIfNeeded(reference: String) async throws -> Containerization.Image {
+        let imageStore = try Containerization.ImageStore(path: bundledContainerAppRoot())
+        let image = try await imageStore.get(reference: reference)
+        return try await normalizeRuntimeImageIfNeeded(image, in: imageStore)
+    }
+
+    private static func normalizeRuntimeImageIfNeeded(
+        _ image: Containerization.Image,
+        in imageStore: Containerization.ImageStore
+    ) async throws -> Containerization.Image {
+        let contentStore = try localContentStore()
+        let descriptor = await runtimeImageDescriptor(from: image.descriptor, contentStore: contentStore)
+        guard descriptor.digest != image.descriptor.digest || descriptor.mediaType != image.descriptor.mediaType else {
+            return image
+        }
+
+        return try await imageStore.create(
+            description: Containerization.Image.Description(
+                reference: image.reference,
+                descriptor: descriptor
+            )
+        )
+    }
+
+    private static func registryAuthentication(for credentials: RegistryCredentials?) throws -> BasicAuthentication? {
+        guard let credentials else {
+            return nil
+        }
+
+        let host = credentials.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let username = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = credentials.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            throw ContainerSDKServiceError.registryHostUnavailable
+        }
+        guard !username.isEmpty, !token.isEmpty else {
+            throw ContainerSDKServiceError.registryCredentialsIncomplete
+        }
+
+        return BasicAuthentication(username: username, password: token)
+    }
+
+    private static func shouldUseInsecureRegistryTransport(for reference: String) -> Bool {
+        guard let host = registryHost(forImageReference: reference)?.lowercased() else {
+            return false
+        }
+
+        return host == "localhost" ||
+            host.hasPrefix("localhost:") ||
+            host.hasPrefix("127.") ||
+            host.hasPrefix("10.") ||
+            host.hasPrefix("192.168.") ||
+            host.range(of: #"^172\.(1[6-9]|2[0-9]|3[0-1])\."#, options: .regularExpression) != nil ||
+            host.hasSuffix(".local") ||
+            host.hasSuffix(".test")
+    }
+
+    private static func pullImageError(
+        _ error: Error,
+        reference: String,
+        credentialsWereProvided: Bool
+    ) -> Error {
+        if let host = registryKeychainFailureHost(from: error) {
+            return ContainerSDKServiceError.registryCredentialsUnavailable(host: host)
+        }
+
+        if isRegistryAuthenticationError(error) {
+            let host = registryHost(forImageReference: reference) ?? "the registry"
+            return credentialsWereProvided
+                ? ContainerSDKServiceError.registrySignInFailed(host: host)
+                : ContainerSDKServiceError.registrySignInRequired(host: host)
+        }
+
+        return error
+    }
+
+    private static func registryKeychainFailureHost(from error: Error) -> String? {
+        let detailed = String(describing: error)
+        if let host = registryKeychainFailureHost(fromMessage: detailed) {
+            return host
+        }
+
+        let localized = error.localizedDescription
+        return registryKeychainFailureHost(fromMessage: localized)
+    }
+
+    private static func isRegistryAuthenticationError(_ error: Error) -> Bool {
+        let message = "\(String(describing: error)) \(error.localizedDescription)".lowercased()
+        return message.contains("no credentials found for host") ||
+            message.contains("unauthorized") ||
+            message.contains("forbidden") ||
+            message.contains("status: 401") ||
+            message.contains("status: 403")
+    }
+
+    private static func host(after marker: String, in message: String) -> String? {
+        guard let range = message.range(of: marker) else {
+            return nil
+        }
+
+        let tail = message[range.upperBound...]
+        let end = tail.firstIndex {
+            $0.isWhitespace || $0 == ")" || $0 == "\"" || $0 == "'" || $0 == ","
+        } ?? tail.endIndex
+        let host = String(tail[..<end])
+        return host.isEmpty ? nil : host
+    }
+
+    private static func makeImageRecord(from image: ClientImage, availability: OCIImageAvailability) async -> OCIImageRecord {
         OCIImageRecord(
             reference: image.reference,
             digest: image.digest,
@@ -1047,12 +1363,24 @@ actor ContainerSDKService {
         )
     }
 
-    private static func imagePlatforms(for image: Image) async -> [String] {
-        guard let index = try? await image.index() else { return [] }
-        let platforms = index.manifests
-            .compactMap(\.platform)
-            .map(\.description)
-        return Array(Set(platforms)).sorted()
+    private static func imagePlatforms(for image: ClientImage) async -> [String] {
+        guard let contentStore = try? localContentStore() else { return [] }
+        return await runtimePlatformDescriptions(from: image.descriptor, contentStore: contentStore)
+    }
+
+    private static func makeImageRecord(from image: Containerization.Image, availability: OCIImageAvailability) async -> OCIImageRecord {
+        OCIImageRecord(
+            reference: image.reference,
+            digest: image.digest,
+            mediaType: image.mediaType,
+            availability: availability,
+            platforms: await imagePlatforms(for: image)
+        )
+    }
+
+    private static func imagePlatforms(for image: Containerization.Image) async -> [String] {
+        guard let contentStore = try? localContentStore() else { return [] }
+        return await runtimePlatformDescriptions(from: image.descriptor, contentStore: contentStore)
     }
 }
 

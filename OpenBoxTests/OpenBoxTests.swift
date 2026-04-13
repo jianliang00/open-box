@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import ContainerizationOCI
 import Foundation
 import SwiftTerm
 import Testing
@@ -28,6 +29,31 @@ private final class LockedData: @unchecked Sendable {
     }
 }
 
+private struct LocalizedTestError: LocalizedError {
+    let errorDescription: String?
+}
+
+private func writeContent<T: Encodable>(
+    _ content: T,
+    mediaType: String,
+    to contentStore: LocalContentStore
+) async throws -> Descriptor {
+    let (id, directory) = try await contentStore.newIngestSession()
+    do {
+        let writer = try ContentWriter(for: directory)
+        let result = try writer.create(from: content)
+        _ = try await contentStore.completeIngestSession(id)
+        return Descriptor(
+            mediaType: mediaType,
+            digest: result.digest.digestString,
+            size: result.size
+        )
+    } catch {
+        try? await contentStore.cancelIngestSession(id)
+        throw error
+    }
+}
+
 struct OpenBoxTests {
 
     @Test func normalizedIdentifierBaseCollapsesUnsupportedCharacters() async throws {
@@ -47,6 +73,90 @@ struct OpenBoxTests {
                 options: .regularExpression
             ) != nil
         )
+    }
+
+    @Test func keychainRegistryErrorMessageSuggestsCredentialRepair() {
+        let error = LocalizedTestError(
+            errorDescription: #"internalError: "error querying keychain for ghcr.io (cause:"queryError("query failure: unhandledError(status: -25293)")")""#
+        )
+
+        #expect(error.openBoxMessage.contains("registry sign-in lookup failure for ghcr.io"))
+        #expect(error.openBoxMessage.contains("Public images are pulled anonymously"))
+        #expect(error.openBoxMessage.contains("sign-in details in OpenBox"))
+        #expect(!error.openBoxMessage.contains("container registry"))
+    }
+
+    @Test func registryHostIsResolvedFromImageReference() {
+        #expect(ContainerSDKService.registryHost(forImageReference: "ghcr.io/org/image:tag") == "ghcr.io")
+        #expect(ContainerSDKService.registryHost(forImageReference: "localhost:5000/org/image:tag") == "localhost:5000")
+    }
+
+    @Test func runtimePlatformDescriptionsIgnoreAttestationManifests() {
+        let index = Index(manifests: [
+            Descriptor(
+                mediaType: MediaTypes.imageManifest,
+                digest: "sha256:darwin",
+                size: 1,
+                platform: Platform(arch: "arm64", os: "darwin")
+            ),
+            Descriptor(
+                mediaType: MediaTypes.imageManifest,
+                digest: "sha256:attestation",
+                size: 1,
+                annotations: ["vnd.docker.reference.type": "attestation-manifest"],
+                platform: Platform(arch: "arm64", os: "linux")
+            )
+        ])
+
+        #expect(ContainerSDKService.runtimePlatformDescriptions(in: index) == ["darwin/arm64"])
+    }
+
+    @Test func runtimePlatformDescriptionsExpandNestedIndexes() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let contentStore = try LocalContentStore(path: directory)
+        let nestedIndex = Index(manifests: [
+            Descriptor(
+                mediaType: MediaTypes.imageManifest,
+                digest: "sha256:darwin",
+                size: 1,
+                platform: Platform(arch: "arm64", os: "darwin")
+            )
+        ])
+        let nestedDescriptor = try await writeContent(
+            nestedIndex,
+            mediaType: MediaTypes.index,
+            to: contentStore
+        )
+        let rootIndex = Index(manifests: [
+            Descriptor(
+                mediaType: MediaTypes.index,
+                digest: nestedDescriptor.digest,
+                size: nestedDescriptor.size,
+                annotations: ["org.opencontainers.image.ref.name": "ghcr.io/jianliang00/macos-dev-agent:26.3"]
+            )
+        ])
+        let rootDescriptor = try await writeContent(
+            rootIndex,
+            mediaType: MediaTypes.index,
+            to: contentStore
+        )
+
+        let resolvedDescriptor = await ContainerSDKService.runtimeImageDescriptor(
+            from: rootDescriptor,
+            contentStore: contentStore
+        )
+        let platforms = await ContainerSDKService.runtimePlatformDescriptions(
+            from: rootDescriptor,
+            contentStore: contentStore
+        )
+
+        #expect(resolvedDescriptor.digest == nestedDescriptor.digest)
+        #expect(platforms == ["darwin/arm64"])
     }
 
     @Test func interactiveTerminalSendsInputBytesUnchanged() throws {

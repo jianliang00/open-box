@@ -1400,8 +1400,46 @@ struct AddImageSheet: View {
 
                 InfoNote(
                     title: "Image Flow",
-                    message: "Add stores the reference locally. Pull downloads it through the container SDK so it can be used by new sandboxes."
+                    message: "Add stores the reference locally. Pull downloads public images anonymously unless registry sign-in is enabled."
                 )
+
+                Toggle("Use registry sign-in", isOn: $draft.usesRegistryCredentials)
+                    .toggleStyle(.switch)
+
+                if draft.usesRegistryCredentials {
+                    VStack(alignment: .leading, spacing: 10) {
+                        FormLabel("Registry")
+                        Text(draft.registryHost ?? "Enter a reference with a registry host")
+                            .font(AppTheme.monoSmallFont)
+                            .foregroundColor(draft.registryHost == nil ? AppTheme.warning : AppTheme.secondary)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AppTheme.fieldSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .innerFieldShadow()
+
+                        FormLabel("Username")
+                        TextField("Registry username", text: $draft.registryUsername)
+                            .textFieldStyle(.plain)
+                            .padding(10)
+                            .background(AppTheme.fieldSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .innerFieldShadow()
+
+                        FormLabel("Access Token")
+                        SecureField("Registry access token", text: $draft.registryToken)
+                            .textFieldStyle(.plain)
+                            .padding(10)
+                            .background(AppTheme.fieldSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .innerFieldShadow()
+
+                        InfoNote(
+                            title: "Private Images",
+                            message: "Use sign-in only for private registries or packages. OpenBox uses these details for this pull and does not use existing container registry logins."
+                        )
+                    }
+                }
             }
             .padding(24)
 
@@ -1412,12 +1450,13 @@ struct AddImageSheet: View {
                 Spacer()
                 Button("Pull") {
                     let reference = draft.reference
+                    let credentials = draft.registryCredentials
                     dismiss()
                     Task { @MainActor in
-                        appState.pullImage(reference: reference)
+                        appState.pullImage(reference: reference, credentials: credentials)
                     }
                 }
-                .disabled(draft.reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!draft.canPull)
                 Button("Add") {
                     let reference = draft.reference
                     dismiss()

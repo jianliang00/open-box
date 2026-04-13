@@ -223,6 +223,37 @@ struct SandboxDraft: Hashable {
 
 struct ImagePullDraft: Hashable {
     var reference: String = ""
+    var usesRegistryCredentials = false
+    var registryUsername = ""
+    var registryToken = ""
+
+    var registryHost: String? {
+        ContainerSDKService.registryHost(forImageReference: reference)
+    }
+
+    var registryCredentials: RegistryCredentials? {
+        guard usesRegistryCredentials,
+              let host = registryHost else {
+            return nil
+        }
+
+        return RegistryCredentials(
+            host: host,
+            username: registryUsername.trimmingCharacters(in: .whitespacesAndNewlines),
+            token: registryToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    var canPull: Bool {
+        let hasReference = !reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasReference, usesRegistryCredentials else {
+            return hasReference
+        }
+
+        return registryHost != nil &&
+            !registryUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !registryToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 enum WorkloadRunMode: String, CaseIterable, Identifiable, Hashable {
@@ -384,7 +415,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func pullImage(reference: String) {
+    func pullImage(reference: String, credentials: RegistryCredentials? = nil) {
         let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             banner = AppBanner(
@@ -396,7 +427,7 @@ final class AppState: ObservableObject {
         }
 
         runMutation(activity: "Pulling \(trimmed)") { [service] in
-            let image = try await service.pullImage(reference: trimmed)
+            let image = try await service.pullImage(reference: trimmed, credentials: credentials)
             await self.refreshAll()
             self.selectedSidebar = .images
             self.selectedImageReference = self.images.first(where: { $0.reference == image.reference })?.reference ?? image.reference
@@ -820,11 +851,20 @@ extension Error {
         if let localizedError = self as? LocalizedError,
            let description = localizedError.errorDescription,
            !description.isEmpty {
+            if let credentialMessage = Self.registryCredentialFailureMessage(from: description) {
+                return credentialMessage
+            }
             return description
         }
 
         let detailed = String(describing: self)
+        if let credentialMessage = Self.registryCredentialFailureMessage(from: detailed) {
+            return credentialMessage
+        }
         let localized = localizedDescription
+        if let credentialMessage = Self.registryCredentialFailureMessage(from: localized) {
+            return credentialMessage
+        }
         if !detailed.isEmpty, detailed != localized {
             return detailed
         }
@@ -835,5 +875,13 @@ extension Error {
         }
 
         return localized
+    }
+
+    private static func registryCredentialFailureMessage(from message: String) -> String? {
+        guard let host = ContainerSDKService.registryKeychainFailureHost(fromMessage: message) else {
+            return nil
+        }
+
+        return "OpenBox hit a registry sign-in lookup failure for \(host). Public images are pulled anonymously; private images need sign-in details in OpenBox."
     }
 }
