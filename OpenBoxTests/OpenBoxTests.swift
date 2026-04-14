@@ -104,6 +104,24 @@ struct OpenBoxTests {
         #expect(!error.openBoxMessage.contains("container registry"))
     }
 
+    @Test func bundledRuntimeSignatureRequiresMatchingStoredData() throws {
+        let current = BundledRuntimeSignature(
+            executablePath: "/tmp/OpenBox.app/Contents/Resources/container/bin/container-apiserver",
+            fileSize: 42,
+            modificationTime: 123
+        )
+        let matchingData = try JSONEncoder().encode(current)
+        let staleData = try JSONEncoder().encode(BundledRuntimeSignature(
+            executablePath: current.executablePath,
+            fileSize: 43,
+            modificationTime: current.modificationTime
+        ))
+
+        #expect(ContainerSDKService.bundledRuntimeSignatureMatchesStored(current: current, storedData: matchingData))
+        #expect(!ContainerSDKService.bundledRuntimeSignatureMatchesStored(current: current, storedData: staleData))
+        #expect(!ContainerSDKService.bundledRuntimeSignatureMatchesStored(current: current, storedData: nil))
+    }
+
     @Test func registryHostIsResolvedFromImageReference() {
         #expect(ContainerSDKService.registryHost(forImageReference: "ghcr.io/org/image:tag") == "ghcr.io")
         #expect(ContainerSDKService.registryHost(forImageReference: "localhost:5000/org/image:tag") == "localhost:5000")

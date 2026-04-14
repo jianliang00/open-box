@@ -27,6 +27,12 @@ struct SandboxSnapshotRecord {
     var detail: SandboxDetail
 }
 
+struct BundledRuntimeSignature: Codable, Equatable {
+    var executablePath: String
+    var fileSize: UInt64
+    var modificationTime: TimeInterval
+}
+
 enum ContainerSDKServiceError: LocalizedError {
     case emptyReference
     case invalidWorkspacePath(String)
@@ -269,6 +275,7 @@ actor ContainerSDKService {
     ]
     private static let terminalLocale = "en_US.UTF-8"
     private static let defaultPathEnvironment = "PATH=\(defaultPathEntries.joined(separator: ":"))"
+    private static let runtimeSignatureFileName = "openbox-runtime-signature.json"
 
     private let imageCatalog = ImageCatalogStore()
     private var containerServicesReady = false
@@ -711,7 +718,7 @@ actor ContainerSDKService {
 
     private func ensureContainerServicesReady() async throws {
         let services = try Self.makeBundledContainerServices()
-        if containerServicesReady, await Self.isBundledServiceRunning(services: services) {
+        if containerServicesReady, await Self.isBundledServiceRunningCurrentRuntime(services: services) {
             return
         }
 
@@ -719,7 +726,9 @@ actor ContainerSDKService {
         Self.logger.info(
             "Ensuring bundled container services: installRoot=\(services.installRootURL.path, privacy: .public)"
         )
+        try await Self.restartBundledServicesIfRuntimeChanged(services: services)
         try await services.ensureRunning(timeout: .seconds(30))
+        try Self.writeBundledRuntimeSignature(services: services)
 
         let health = try await Self.makeKit().health(timeout: .seconds(5))
         guard services.owns(health) else {
@@ -757,6 +766,24 @@ actor ContainerSDKService {
         return services.owns(health)
     }
 
+    private static func isBundledServiceRunningCurrentRuntime(services: ContainerKitServices) async -> Bool {
+        guard await isBundledServiceRunning(services: services) else {
+            return false
+        }
+
+        return (try? bundledRuntimeSignatureMatchesStored(services: services)) == true
+    }
+
+    private static func restartBundledServicesIfRuntimeChanged(services: ContainerKitServices) async throws {
+        guard await isBundledServiceRunning(services: services),
+              try !bundledRuntimeSignatureMatchesStored(services: services) else {
+            return
+        }
+
+        Self.logger.info("Restarting bundled container services because the embedded runtime changed")
+        try await services.stop()
+    }
+
     private static func makeBundledContainerServices() throws -> ContainerKitServices {
         let installRoot = try bundledContainerInstallRoot()
         return ContainerKitServices(
@@ -792,6 +819,59 @@ actor ContainerSDKService {
         return applicationSupport
             .appendingPathComponent(bundleID, isDirectory: true)
             .appendingPathComponent("container", isDirectory: true)
+    }
+
+    static func bundledRuntimeSignature(apiServerURL: URL) throws -> BundledRuntimeSignature {
+        let values = try apiServerURL.resourceValues(forKeys: [
+            .contentModificationDateKey,
+            .fileSizeKey,
+        ])
+        guard let modificationDate = values.contentModificationDate,
+              let fileSize = values.fileSize else {
+            throw ContainerSDKServiceError.bundledContainerRuntimeMissing(apiServerURL.path)
+        }
+
+        return BundledRuntimeSignature(
+            executablePath: apiServerURL.standardizedFileURL.path,
+            fileSize: UInt64(fileSize),
+            modificationTime: modificationDate.timeIntervalSinceReferenceDate
+        )
+    }
+
+    static func bundledRuntimeSignatureStateURL(appRoot: URL) -> URL {
+        appRoot
+            .appendingPathComponent("apiserver", isDirectory: true)
+            .appendingPathComponent(runtimeSignatureFileName)
+    }
+
+    static func bundledRuntimeSignatureMatchesStored(current: BundledRuntimeSignature, storedData: Data?) -> Bool {
+        guard let storedData,
+              let stored = try? JSONDecoder().decode(BundledRuntimeSignature.self, from: storedData) else {
+            return false
+        }
+        return stored == current
+    }
+
+    private static func bundledRuntimeSignatureMatchesStored(services: ContainerKitServices) throws -> Bool {
+        let current = try bundledRuntimeSignature(
+            apiServerURL: services.installRootURL.appendingPathComponent("bin/container-apiserver")
+        )
+        let stateURL = bundledRuntimeSignatureStateURL(appRoot: services.appRootURL)
+        return bundledRuntimeSignatureMatchesStored(
+            current: current,
+            storedData: try? Data(contentsOf: stateURL)
+        )
+    }
+
+    private static func writeBundledRuntimeSignature(services: ContainerKitServices) throws {
+        let apiServerURL = services.installRootURL.appendingPathComponent("bin/container-apiserver")
+        let signature = try bundledRuntimeSignature(apiServerURL: apiServerURL)
+        let stateURL = bundledRuntimeSignatureStateURL(appRoot: services.appRootURL)
+        try FileManager.default.createDirectory(
+            at: stateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(signature).write(to: stateURL, options: .atomic)
     }
 
     private static func unexpectedContainerServiceError(
