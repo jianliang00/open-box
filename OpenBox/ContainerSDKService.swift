@@ -272,6 +272,7 @@ actor ContainerSDKService {
 
     private let imageCatalog = ImageCatalogStore()
     private var containerServicesReady = false
+    private var defaultKernelPreparationTask: Task<Void, Error>?
 
     static func makeInteractiveTerminalEnvironment(baseEnvironment: [String], shellPath: String) -> [String] {
         var order: [String] = []
@@ -466,7 +467,17 @@ actor ContainerSDKService {
         let image = try await kit.getImage(reference: draft.imageReference)
         let sandboxID = Self.makeSandboxID(name: draft.name)
         let client = Self.makeClient()
-        let configuration = try await Self.createContainer(id: sandboxID, image: image, draft: draft, client: client)
+        let useMacOSIdleProcess = try await Self.shouldUseMacOSIdleProcess(image: image)
+        if !useMacOSIdleProcess {
+            try await ensureDefaultKernelInstalled()
+        }
+        let configuration = try await Self.createContainer(
+            id: sandboxID,
+            image: image,
+            draft: draft,
+            client: client,
+            useMacOSIdleProcess: useMacOSIdleProcess
+        )
         if draft.autoStart {
             if configuration.runtimeHandler == Self.macOSRuntimeHandler {
                 Self.logger.info("Auto-starting macOS sandbox without Desktop GUI: id=\(sandboxID, privacy: .public)")
@@ -488,6 +499,7 @@ actor ContainerSDKService {
             try await Self.startMacOSSandbox(id: id, configuration: snapshot.configuration, presentGUI: false)
         } else {
             Self.logger.info("Starting non-macOS sandbox: id=\(id, privacy: .public) runtime=\(snapshot.configuration.runtimeHandler, privacy: .public)")
+            try await ensureDefaultKernelInstalled()
             try await Self.startContainer(id: id, client: Self.makeClient())
         }
     }
@@ -707,7 +719,7 @@ actor ContainerSDKService {
         Self.logger.info(
             "Ensuring bundled container services: installRoot=\(services.installRootURL.path, privacy: .public)"
         )
-        try await services.ensureRunning(timeout: .seconds(30), installDefaultKernel: true)
+        try await services.ensureRunning(timeout: .seconds(30))
 
         let health = try await Self.makeKit().health(timeout: .seconds(5))
         guard services.owns(health) else {
@@ -715,6 +727,27 @@ actor ContainerSDKService {
         }
 
         containerServicesReady = true
+    }
+
+    private func ensureDefaultKernelInstalled() async throws {
+        if let task = defaultKernelPreparationTask {
+            try await task.value
+            return
+        }
+
+        let task = Task {
+            let services = try Self.makeBundledContainerServices()
+            Self.logger.info("Preparing default Linux kernel on demand")
+            try await services.ensureDefaultKernelInstalled(timeout: .seconds(30))
+        }
+        defaultKernelPreparationTask = task
+        do {
+            try await task.value
+            defaultKernelPreparationTask = nil
+        } catch {
+            defaultKernelPreparationTask = nil
+            throw error
+        }
     }
 
     private static func isBundledServiceRunning(services: ContainerKitServices) async -> Bool {
@@ -1301,7 +1334,8 @@ actor ContainerSDKService {
         id: String,
         image: ClientImage,
         draft: SandboxDraft,
-        client: ContainerClient
+        client: ContainerClient,
+        useMacOSIdleProcess: Bool
     ) async throws -> ContainerConfiguration {
         let trimmedWorkspace = draft.workspacePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedWorkspace.isEmpty {
@@ -1311,7 +1345,6 @@ actor ContainerSDKService {
             }
         }
 
-        let useMacOSIdleProcess = try await Self.shouldUseMacOSIdleProcess(image: image)
         let processFlags = try Flags.Process.parse([
             "--env", Self.defaultPathEnvironment
         ])
