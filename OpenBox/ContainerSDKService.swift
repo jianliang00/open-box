@@ -791,7 +791,10 @@ actor ContainerSDKService {
             installation: ContainerInstallation(
                 installRoot: installRoot,
                 apiServerExecutableURL: installRoot.appendingPathComponent("bin/container-apiserver")
-            )
+            ),
+            environment: [
+                "CONTAINER_REGISTRY_KEYCHAIN_DISABLED": "1"
+            ]
         )
     }
 
