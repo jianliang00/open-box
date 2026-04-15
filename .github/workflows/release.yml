@@ -1,0 +1,114 @@
+name: OpenBox release build
+
+permissions:
+  contents: read
+
+on:
+  push:
+    tags:
+      - "[0-9]+\\.[0-9]+\\.[0-9]+"
+
+jobs:
+  build:
+    name: Build app artifact
+    timeout-minutes: 90
+    runs-on: macos-26
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Xcode developer directory
+        run: |
+          echo "DEVELOPER_DIR=$(/usr/bin/xcode-select -p)" >> "$GITHUB_ENV"
+          /usr/bin/xcodebuild -version
+
+      - name: Resolve package dependencies
+        run: |
+          /usr/bin/xcodebuild \
+            -resolvePackageDependencies \
+            -project OpenBox.xcodeproj \
+            -scheme OpenBox \
+            -derivedDataPath "${RUNNER_TEMP}/OpenBoxDerivedData"
+
+      - name: Build OpenBox
+        run: |
+          /usr/bin/xcodebuild \
+            -project OpenBox.xcodeproj \
+            -scheme OpenBox \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            -derivedDataPath "${RUNNER_TEMP}/OpenBoxDerivedData" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package OpenBox
+        run: |
+          set -euo pipefail
+
+          app_path="${RUNNER_TEMP}/OpenBoxDerivedData/Build/Products/Release/OpenBox.app"
+          artifact_dir="${GITHUB_WORKSPACE}/outputs/openbox-app"
+          artifact_name="OpenBox-${GITHUB_REF_NAME}"
+
+          test -d "${app_path}" || (echo "Missing app bundle at ${app_path}" && exit 1)
+
+          mkdir -p "${artifact_dir}"
+          /usr/bin/ditto -c -k --keepParent "${app_path}" "${artifact_dir}/${artifact_name}.zip"
+
+          dsym_path="${RUNNER_TEMP}/OpenBoxDerivedData/Build/Products/Release/OpenBox.app.dSYM"
+          if [[ -d "${dsym_path}" ]]; then
+            /usr/bin/ditto -c -k --keepParent "${dsym_path}" "${artifact_dir}/${artifact_name}.dSYM.zip"
+          fi
+
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "${app_path}"
+          ls -la "${artifact_dir}"
+
+      - name: Save app artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: openbox-app
+          path: ${{ github.workspace }}/outputs/openbox-app
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    name: Publish release
+    timeout-minutes: 30
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          path: outputs
+
+      - name: Verify artifacts exist
+        run: |
+          echo "Checking for expected artifacts..."
+          ls -la outputs/openbox-app/
+          test -e outputs/openbox-app/OpenBox-${GITHUB_REF_NAME}.zip || (echo "Missing OpenBox app zip!" && exit 1)
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ github.token }}
+          name: ${{ github.ref_name }}
+          draft: false
+          make_latest: true
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            outputs/openbox-app/*.zip
