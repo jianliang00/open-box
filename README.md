@@ -64,7 +64,7 @@ Dependency versions and revisions are pinned in
 
 Push a semantic version tag such as `1.0.0` to trigger the GitHub Actions
 release workflow. The workflow builds the Release app on macOS, packages
-`OpenBox-<tag>.zip`, and attaches it to a GitHub Release.
+`OpenBox-<tag>.dmg`, and attaches it to a GitHub Release.
 
 ## License
 

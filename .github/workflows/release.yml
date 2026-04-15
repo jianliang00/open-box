@@ -60,7 +60,18 @@ jobs:
           test -d "${app_path}" || (echo "Missing app bundle at ${app_path}" && exit 1)
 
           mkdir -p "${artifact_dir}"
-          /usr/bin/ditto -c -k --keepParent "${app_path}" "${artifact_dir}/${artifact_name}.zip"
+          dmg_root="${RUNNER_TEMP}/${artifact_name}-dmg"
+          rm -rf "${dmg_root}"
+          mkdir -p "${dmg_root}"
+          /usr/bin/ditto "${app_path}" "${dmg_root}/OpenBox.app"
+          ln -s /Applications "${dmg_root}/Applications"
+
+          /usr/bin/hdiutil create \
+            -volname "OpenBox ${GITHUB_REF_NAME}" \
+            -srcfolder "${dmg_root}" \
+            -ov \
+            -format UDZO \
+            "${artifact_dir}/${artifact_name}.dmg"
 
           dsym_path="${RUNNER_TEMP}/OpenBoxDerivedData/Build/Products/Release/OpenBox.app.dSYM"
           if [[ -d "${dsym_path}" ]]; then
@@ -99,7 +110,7 @@ jobs:
         run: |
           echo "Checking for expected artifacts..."
           ls -la outputs/openbox-app/
-          test -e outputs/openbox-app/OpenBox-${GITHUB_REF_NAME}.zip || (echo "Missing OpenBox app zip!" && exit 1)
+          test -e outputs/openbox-app/OpenBox-${GITHUB_REF_NAME}.dmg || (echo "Missing OpenBox app dmg!" && exit 1)
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -112,4 +123,5 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
+            outputs/openbox-app/*.dmg
             outputs/openbox-app/*.zip
