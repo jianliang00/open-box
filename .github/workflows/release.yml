@@ -167,11 +167,31 @@ jobs:
           printf '%s' "${APP_STORE_CONNECT_PRIVATE_KEY_BASE64}" | /usr/bin/base64 --decode > "${asc_key_path}"
           chmod 600 "${asc_key_path}"
 
+          notary_result_path="${RUNNER_TEMP}/notary-result.json"
+          set +e
           /usr/bin/xcrun notarytool submit "${dmg_path}" \
             --key "${asc_key_path}" \
             --key-id "${APP_STORE_CONNECT_KEY_ID}" \
             --issuer "${APP_STORE_CONNECT_ISSUER_ID}" \
-            --wait
+            --wait \
+            --output-format json > "${notary_result_path}"
+          notary_exit=$?
+          set -e
+
+          cat "${notary_result_path}"
+
+          submission_id="$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("id", ""))' "${notary_result_path}")"
+          notary_status="$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("status", ""))' "${notary_result_path}")"
+
+          if [[ "${notary_exit}" -ne 0 || "${notary_status}" != "Accepted" ]]; then
+            if [[ -n "${submission_id}" ]]; then
+              /usr/bin/xcrun notarytool log "${submission_id}" \
+                --key "${asc_key_path}" \
+                --key-id "${APP_STORE_CONNECT_KEY_ID}" \
+                --issuer "${APP_STORE_CONNECT_ISSUER_ID}" || true
+            fi
+            exit 1
+          fi
 
           /usr/bin/xcrun stapler staple "${dmg_path}"
           /usr/bin/xcrun stapler validate "${dmg_path}"
