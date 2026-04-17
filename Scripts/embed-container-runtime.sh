@@ -130,7 +130,12 @@ if [[ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]]; then
   sign_binary() {
     local binary="$1"
     local entitlements="${2:-}"
-    local args=(--force --sign "${sign_identity}" --timestamp=none --options runtime)
+    local timestamp_args=(--timestamp=none)
+    if [[ "${CONFIGURATION:-Debug}" == "Release" && "${sign_identity}" != "-" ]]; then
+      timestamp_args=(--timestamp)
+    fi
+
+    local args=(--force --sign "${sign_identity}" "${timestamp_args[@]}" --options runtime)
     if [[ -n "${entitlements}" ]]; then
       args+=(--entitlements "${entitlements}")
     fi
