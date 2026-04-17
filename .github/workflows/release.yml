@@ -74,6 +74,7 @@ jobs:
           certificate_path="${RUNNER_TEMP}/developer-id-application.p12"
           keychain_path="${RUNNER_TEMP}/openbox-signing.keychain-db"
           keychain_password="$(/usr/bin/uuidgen)"
+          certificate_password="$(printf '%s' "${MACOS_CERTIFICATE_PASSWORD}" | /usr/bin/tr -d '\r\n')"
 
           printf '%s' "${MACOS_CERTIFICATE_P12_BASE64}" | /usr/bin/base64 --decode > "${certificate_path}"
 
@@ -81,7 +82,7 @@ jobs:
           /usr/bin/security set-keychain-settings -lut 21600 "${keychain_path}"
           /usr/bin/security unlock-keychain -p "${keychain_password}" "${keychain_path}"
           /usr/bin/security import "${certificate_path}" \
-            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -P "${certificate_password}" \
             -A \
             -t cert \
             -f pkcs12 \
