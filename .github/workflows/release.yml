@@ -35,6 +35,71 @@ jobs:
             -scheme OpenBox \
             -derivedDataPath "${RUNNER_TEMP}/OpenBoxDerivedData"
 
+      - name: Validate signing secrets
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for name in \
+            MACOS_CERTIFICATE_P12_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            APP_STORE_CONNECT_KEY_ID \
+            APP_STORE_CONNECT_ISSUER_ID \
+            APP_STORE_CONNECT_PRIVATE_KEY_BASE64
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required GitHub Actions secrets:\n'
+            printf ' - %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          certificate_path="${RUNNER_TEMP}/developer-id-application.p12"
+          keychain_path="${RUNNER_TEMP}/openbox-signing.keychain-db"
+          keychain_password="$(/usr/bin/uuidgen)"
+
+          printf '%s' "${MACOS_CERTIFICATE_P12_BASE64}" | /usr/bin/base64 --decode > "${certificate_path}"
+
+          /usr/bin/security create-keychain -p "${keychain_password}" "${keychain_path}"
+          /usr/bin/security set-keychain-settings -lut 21600 "${keychain_path}"
+          /usr/bin/security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          /usr/bin/security import "${certificate_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "${keychain_path}"
+          /usr/bin/security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          /usr/bin/security list-keychains -d user -s "${keychain_path}" "${HOME}/Library/Keychains/login.keychain-db"
+          /usr/bin/security default-keychain -s "${keychain_path}"
+          /usr/bin/security find-identity -v -p codesigning "${keychain_path}"
+
+          {
+            echo "DEVELOPER_ID_APPLICATION=Developer ID Application: Jianliang Wang (BZP4VMX57B)"
+            echo "SIGNING_KEYCHAIN_PATH=${keychain_path}"
+          } >> "${GITHUB_ENV}"
+
       - name: Build OpenBox
         run: |
           /usr/bin/xcodebuild \
@@ -44,9 +109,10 @@ jobs:
             -destination "generic/platform=macOS" \
             -derivedDataPath "${RUNNER_TEMP}/OpenBoxDerivedData" \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="-" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_IDENTITY="${DEVELOPER_ID_APPLICATION}" \
+            DEVELOPMENT_TEAM="BZP4VMX57B" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" \
             build
 
       - name: Package OpenBox
@@ -61,6 +127,7 @@ jobs:
 
           mkdir -p "${artifact_dir}"
           dmg_root="${RUNNER_TEMP}/${artifact_name}-dmg"
+          dmg_path="${artifact_dir}/${artifact_name}.dmg"
           rm -rf "${dmg_root}"
           mkdir -p "${dmg_root}"
           /usr/bin/ditto "${app_path}" "${dmg_root}/OpenBox.app"
@@ -71,7 +138,10 @@ jobs:
             -srcfolder "${dmg_root}" \
             -ov \
             -format UDZO \
-            "${artifact_dir}/${artifact_name}.dmg"
+            "${dmg_path}"
+
+          /usr/bin/codesign --force --timestamp --sign "${DEVELOPER_ID_APPLICATION}" "${dmg_path}"
+          /usr/bin/codesign --verify --verbose=2 "${dmg_path}"
 
           dsym_path="${RUNNER_TEMP}/OpenBoxDerivedData/Build/Products/Release/OpenBox.app.dSYM"
           if [[ -d "${dsym_path}" ]]; then
@@ -79,7 +149,41 @@ jobs:
           fi
 
           /usr/bin/codesign --verify --deep --strict --verbose=2 "${app_path}"
+          /usr/bin/codesign --display --verbose=4 "${app_path}"
           ls -la "${artifact_dir}"
+
+      - name: Notarize and staple DMG
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          dmg_path="${GITHUB_WORKSPACE}/outputs/openbox-app/OpenBox-${GITHUB_REF_NAME}.dmg"
+          asc_key_path="${RUNNER_TEMP}/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+
+          printf '%s' "${APP_STORE_CONNECT_PRIVATE_KEY_BASE64}" | /usr/bin/base64 --decode > "${asc_key_path}"
+          chmod 600 "${asc_key_path}"
+
+          /usr/bin/xcrun notarytool submit "${dmg_path}" \
+            --key "${asc_key_path}" \
+            --key-id "${APP_STORE_CONNECT_KEY_ID}" \
+            --issuer "${APP_STORE_CONNECT_ISSUER_ID}" \
+            --wait
+
+          /usr/bin/xcrun stapler staple "${dmg_path}"
+          /usr/bin/xcrun stapler validate "${dmg_path}"
+          /usr/sbin/spctl -a -t open --context context:primary-signature -vv "${dmg_path}"
+
+      - name: Cleanup signing keychain
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${SIGNING_KEYCHAIN_PATH:-}" && -f "${SIGNING_KEYCHAIN_PATH}" ]]; then
+            /usr/bin/security delete-keychain "${SIGNING_KEYCHAIN_PATH}" || true
+          fi
 
       - name: Save app artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

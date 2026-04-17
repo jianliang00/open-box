@@ -1,0 +1,7 @@
+# Local signing materials generated during release setup.
+AuthKey_*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
+OpenBoxDeveloperID.cer
+OpenBoxDeveloperID.csr
