@@ -4,6 +4,14 @@ OpenBox is a macOS SwiftUI app for managing OCI-backed sandboxes through the
 container SDK. It provides a desktop interface for tracking images, creating
 sandboxes, running workloads, and opening interactive terminals.
 
+## Showcase
+
+![OpenBox showcase screenshot 1](docs/showcase/openbox-showcase-1.png)
+
+![OpenBox showcase screenshot 2](docs/showcase/openbox-showcase-2.png)
+
+![OpenBox showcase screenshot 3](docs/showcase/openbox-showcase-3.png)
+
 ## Features
 
 - Manage local OCI image references and downloaded images.
