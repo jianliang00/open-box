@@ -17,11 +17,16 @@ Ready-to-use images make the first sandbox quick to launch.
 
 ## Showcase
 
-![OpenBox sandbox overview](docs/showcase/openbox-showcase-1.png)
-
-![OpenBox sandbox detail](docs/showcase/openbox-showcase-2.png)
-
-![OpenBox embedded terminal](docs/showcase/openbox-showcase-3.png)
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/showcase/openbox-showcase-1.png" alt="OpenBox sandbox overview">
+    </td>
+    <td width="50%">
+      <img src="docs/showcase/openbox-showcase-3.png" alt="OpenBox embedded terminal">
+    </td>
+  </tr>
+</table>
 
 ## Why OpenBox
 
