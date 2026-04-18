@@ -127,6 +127,38 @@ struct OpenBoxTests {
         #expect(ContainerSDKService.registryHost(forImageReference: "localhost:5000/org/image:tag") == "localhost:5000")
     }
 
+    @Test func builtInImageCatalogContainsMacOSBaseImage() {
+        #expect(BuiltInImageCatalog.macOSBaseReference == "ghcr.io/jianliang00/macos-base:26.3")
+        #expect(BuiltInImageCatalog.references == ["ghcr.io/jianliang00/macos-base:26.3"])
+        #expect(BuiltInImageCatalog.contains(" ghcr.io/jianliang00/macos-base:26.3 "))
+        #expect(!BuiltInImageCatalog.contains("ghcr.io/org/image:tag"))
+    }
+
+    @Test func imageDisplayOrderKeepsBuiltInImagesFirst() {
+        let regularImage = OCIImageRecord(
+            reference: "ghcr.io/a/regular:latest",
+            digest: "",
+            mediaType: "Not downloaded",
+            availability: .added
+        )
+        let builtInImage = OCIImageRecord(
+            reference: BuiltInImageCatalog.macOSBaseReference,
+            digest: "",
+            mediaType: "Not downloaded",
+            availability: .added,
+            isBuiltIn: true
+        )
+
+        let sortedReferences = [regularImage, builtInImage]
+            .sorted { OCIImageRecord.displayOrder(lhs: $0, rhs: $1) }
+            .map(\.reference)
+
+        #expect(sortedReferences == [
+            BuiltInImageCatalog.macOSBaseReference,
+            "ghcr.io/a/regular:latest"
+        ])
+    }
+
     @Test func imagePullProgressAggregatesByteEvents() {
         var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
 

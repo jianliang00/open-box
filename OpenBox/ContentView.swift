@@ -476,7 +476,8 @@ struct ImageListView: View {
         guard !searchText.isEmpty else { return appState.displayedImages }
         return appState.displayedImages.filter { image in
             image.reference.localizedCaseInsensitiveContains(searchText) ||
-            image.digest.localizedCaseInsensitiveContains(searchText)
+            image.digest.localizedCaseInsensitiveContains(searchText) ||
+            image.matchesBuiltInSearch(searchText)
         }
     }
 
@@ -540,10 +541,12 @@ struct ImageListView: View {
                                         appState.pullImage(reference: image.reference)
                                     }
                                 }
-                                Button(image.isDownloaded ? "Delete Image" : "Remove Image", role: .destructive) {
-                                    appState.deleteImage(reference: image.reference)
+                                if image.canDeleteOrRemove {
+                                    Button(image.destructiveActionTitle, role: .destructive) {
+                                        appState.deleteImage(reference: image.reference)
+                                    }
+                                    .disabled(image.isPulling)
                                 }
-                                .disabled(image.isPulling)
                             }
                         }
                     }
@@ -677,6 +680,9 @@ struct ImageRow: View {
                         color: image.availability.color,
                         fill: image.availability.fillColor
                     )
+                    if image.isBuiltIn {
+                        StatusPill(text: image.builtInLabel, color: AppTheme.secondary, fill: AppTheme.detailSurface)
+                    }
                     if image.isDownloaded {
                         StatusPill(text: image.shortDigest, color: AppTheme.secondary, fill: AppTheme.detailSurface)
                     }
@@ -1321,6 +1327,9 @@ struct ImageDetailView: View {
                         if image.isDownloaded {
                             StatusBadge(text: image.shortDigest, color: AppTheme.accent)
                         }
+                        if image.isBuiltIn {
+                            StatusBadge(text: image.builtInLabel, color: AppTheme.secondary, fill: AppTheme.selectionSurface)
+                        }
                         Text(image.mediaType)
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -1344,11 +1353,13 @@ struct ImageDetailView: View {
                             .disabled(appState.isMutating)
                         }
 
-                        Button(image.isDownloaded ? "Delete Image" : "Remove Image", role: .destructive) {
-                            appState.deleteImage(reference: image.reference)
+                        if image.canDeleteOrRemove {
+                            Button(image.destructiveActionTitle, role: .destructive) {
+                                appState.deleteImage(reference: image.reference)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(appState.isMutating || image.isPulling)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(appState.isMutating || image.isPulling)
                     }
 
                     if image.isPulling {
@@ -2948,6 +2959,25 @@ extension OCIImageAvailability {
 }
 
 extension OCIImageRecord {
+    var builtInLabel: String {
+        "Built-in"
+    }
+
+    var canDeleteOrRemove: Bool {
+        !isBuiltIn || isDownloaded
+    }
+
+    var destructiveActionTitle: String {
+        isDownloaded ? "Delete Image" : "Remove Image"
+    }
+
+    func matchesBuiltInSearch(_ query: String) -> Bool {
+        guard isBuiltIn else { return false }
+        return builtInLabel.localizedCaseInsensitiveContains(query) ||
+            "builtin".localizedCaseInsensitiveContains(query) ||
+            "内置".localizedCaseInsensitiveContains(query)
+    }
+
     var shortDigest: String {
         digest.isEmpty ? "—" : (digest.count > 18 ? String(digest.prefix(18)) + "…" : digest)
     }
@@ -2957,6 +2987,17 @@ extension OCIImageRecord {
     }
 
     var usageDescription: String {
+        if isBuiltIn {
+            switch availability {
+            case .downloaded:
+                return "Use this built-in image directly in a new sandbox."
+            case .pulling:
+                return "This built-in image is being pulled. It will be available for new sandboxes after the download finishes."
+            case .added:
+                return "Pull this built-in image before creating a sandbox from it."
+            }
+        }
+
         switch availability {
         case .downloaded:
             return "Use this downloaded image directly in a new sandbox."

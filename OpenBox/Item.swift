@@ -94,28 +94,49 @@ enum OCIImageAvailability: String, Codable, Hashable {
     case pulling
 }
 
+enum BuiltInImageCatalog {
+    static let macOSBaseReference = "ghcr.io/jianliang00/macos-base:26.3"
+    static let references = [macOSBaseReference]
+
+    private static let referenceSet = Set(references)
+
+    static func contains(_ reference: String) -> Bool {
+        referenceSet.contains(reference.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
 struct OCIImageRecord: Identifiable, Hashable {
     let reference: String
     let digest: String
     let mediaType: String
     let availability: OCIImageAvailability
     let platforms: [String]
+    let isBuiltIn: Bool
 
     init(
         reference: String,
         digest: String,
         mediaType: String,
         availability: OCIImageAvailability = .downloaded,
-        platforms: [String] = []
+        platforms: [String] = [],
+        isBuiltIn: Bool = false
     ) {
         self.reference = reference
         self.digest = digest
         self.mediaType = mediaType
         self.availability = availability
         self.platforms = platforms
+        self.isBuiltIn = isBuiltIn
     }
 
     var id: String { reference }
+
+    static func displayOrder(lhs: OCIImageRecord, rhs: OCIImageRecord) -> Bool {
+        if lhs.isBuiltIn != rhs.isBuiltIn {
+            return lhs.isBuiltIn
+        }
+        return lhs.reference.localizedCaseInsensitiveCompare(rhs.reference) == .orderedAscending
+    }
 
     var isDownloaded: Bool {
         availability == .downloaded
@@ -418,7 +439,8 @@ final class AppState: ObservableObject {
                 digest: image.digest,
                 mediaType: image.mediaType,
                 availability: .pulling,
-                platforms: image.platforms
+                platforms: image.platforms,
+                isBuiltIn: image.isBuiltIn
             )
         }
 
@@ -430,12 +452,13 @@ final class AppState: ObservableObject {
                     reference: $0.reference,
                     digest: "",
                     mediaType: "Pull in progress",
-                    availability: .pulling
+                    availability: .pulling,
+                    isBuiltIn: BuiltInImageCatalog.contains($0.reference)
                 )
             }
 
-        return (persistentImages + transientImages).sorted { lhs, rhs in
-            lhs.reference.localizedCaseInsensitiveCompare(rhs.reference) == .orderedAscending
+        return (persistentImages + transientImages).sorted {
+            OCIImageRecord.displayOrder(lhs: $0, rhs: $1)
         }
     }
 
@@ -574,7 +597,10 @@ final class AppState: ObservableObject {
     }
 
     func deleteImage(reference: String) {
-        let image = images.first { $0.reference == reference }
+        let image = displayedImages.first { $0.reference == reference }
+        if image?.isBuiltIn == true && image?.isDownloaded != true {
+            return
+        }
         let deleteDownloadedImage = image?.isDownloaded == true
         let activity = deleteDownloadedImage ? "Deleting \(reference)" : "Removing \(reference)"
 

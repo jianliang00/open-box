@@ -370,26 +370,41 @@ actor ContainerSDKService {
         let kit = Self.makeKit()
         let images = try await kit.listImages()
         var records: [OCIImageRecord] = []
-        records.reserveCapacity(images.count)
+        records.reserveCapacity(images.count + BuiltInImageCatalog.references.count)
 
         for image in images {
             records.append(await Self.makeImageRecord(from: image, availability: .downloaded))
         }
 
-        let downloadedReferences = Set(records.map(\.reference))
-        for storedImage in try imageCatalog.load() where !downloadedReferences.contains(storedImage.reference) {
+        var knownReferences = Set(records.map(\.reference))
+        for storedImage in try imageCatalog.load() where !knownReferences.contains(storedImage.reference) {
             records.append(
                 OCIImageRecord(
                     reference: storedImage.reference,
                     digest: "",
                     mediaType: "Not downloaded",
-                    availability: .added
+                    availability: .added,
+                    isBuiltIn: BuiltInImageCatalog.contains(storedImage.reference)
                 )
             )
+            knownReferences.insert(storedImage.reference)
         }
 
-        return records.sorted { lhs, rhs in
-            lhs.reference.localizedCaseInsensitiveCompare(rhs.reference) == .orderedAscending
+        for reference in BuiltInImageCatalog.references where !knownReferences.contains(reference) {
+            records.append(
+                OCIImageRecord(
+                    reference: reference,
+                    digest: "",
+                    mediaType: "Not downloaded",
+                    availability: .added,
+                    isBuiltIn: true
+                )
+            )
+            knownReferences.insert(reference)
+        }
+
+        return records.sorted {
+            OCIImageRecord.displayOrder(lhs: $0, rhs: $1)
         }
     }
 
@@ -1769,7 +1784,8 @@ actor ContainerSDKService {
             digest: image.digest,
             mediaType: image.description.mediaType,
             availability: availability,
-            platforms: await imagePlatforms(for: image)
+            platforms: await imagePlatforms(for: image),
+            isBuiltIn: BuiltInImageCatalog.contains(image.reference)
         )
     }
 
@@ -1784,7 +1800,8 @@ actor ContainerSDKService {
             digest: image.digest,
             mediaType: image.mediaType,
             availability: availability,
-            platforms: await imagePlatforms(for: image)
+            platforms: await imagePlatforms(for: image),
+            isBuiltIn: BuiltInImageCatalog.contains(image.reference)
         )
     }
 
