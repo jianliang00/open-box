@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>OpenBox — Isolated Mac sandboxes, one visual app</title>
+<meta name="description" content="OpenBox creates isolated macOS sandboxes on Apple Silicon, with guest desktop sessions, command execution, and disposable environments for agents and app tests." />
+<meta property="og:title" content="OpenBox — Isolated Mac sandboxes, one visual app" />
+<meta property="og:description" content="Create, run, inspect, and remove isolated macOS sandboxes from one desktop app." />
+<meta property="og:image" content="preview.jpg" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f%5B%5D=supreme@400,500,600,700&f%5B%5D=gambarino@400,401&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    --bg:        #f6f5f1;
+    --bg-2:      #efede6;
+    --surface:   #ffffff;
+    --ink:       #15140f;
+    --ink-2:     #2a2824;
+    --ink-3:     #5a564d;
+    --ink-4:     #8a857a;
+    --line:      #e2dfd5;
+    --line-2:    #d1cdc0;
+    --accent:    oklch(0.62 0.16 240);
+    --accent-ink:#ffffff;
+    --accent-bg: oklch(0.95 0.03 240);
+    --good:      oklch(0.60 0.14 150);
+    --good-bg:   oklch(0.95 0.04 150);
+    --warn:      oklch(0.65 0.15 60);
+
+    --font-body:  'Supreme', ui-sans-serif, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-serif: 'Gambarino', 'Fraunces', 'Times New Roman', serif;
+  }
+
+  html, body { background: var(--bg); color: var(--ink); }
+  body {
+    margin: 0;
+    font-family: var(--font-body);
+    font-feature-settings: "ss01","ss02","cv11";
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  * { box-sizing: border-box; }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; }
+
+  ::selection { background: var(--accent); color: #fff; }
+
+  /* grid overlay — very subtle paper feel */
+  body::before {
+    content:"";
+    position: fixed; inset: 0;
+    background:
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 48px,
+      radial-gradient(circle at 50% 0%, rgba(0,0,0,0.02), transparent 60%);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+    mix-blend-mode: multiply;
+  }
+
+  #root { position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    const TWEAKS = /*EDITMODE-BEGIN*/{
+      "accent_hue": 240,
+      "density": "comfortable",
+      "display_serif": true,
+      "show_terminal": true
+    }/*EDITMODE-END*/;
+    window.__TWEAKS__ = TWEAKS;
+  </script>
+
+  <script src="dist/components.js"></script>
+  <script src="dist/sections.js"></script>
+  <script src="dist/app.js"></script>
+</body>
+</html>
