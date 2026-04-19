@@ -8,8 +8,6 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/jianliang00/open-box"></a>
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&logoColor=white">
   <img alt="Apple Silicon required" src="https://img.shields.io/badge/Apple%20Silicon-required-000000?logo=apple&logoColor=white">
-  <img alt="Swift 5.0" src="https://img.shields.io/badge/Swift-5.0-F05138?logo=swift&logoColor=white">
-  <img alt="Xcode 26+" src="https://img.shields.io/badge/Xcode-26%2B-147EFB?logo=xcode&logoColor=white">
 </p>
 
 ---
