@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/banner_dark_single_left_1600x500.png" alt="OpenBox">
+  <img src="docs/brand/banner_light_center_2170x725.png" alt="OpenBox">
 </p>
 
 **A desktop app for creating and managing isolated Mac environments.**
