@@ -153,19 +153,22 @@ struct ImagePullProgress: Hashable, Sendable {
     private(set) var totalBytes: Int64
     private(set) var completedItems: Int64
     private(set) var totalItems: Int64
+    private(set) var isCancelling: Bool
 
     init(
         reference: String,
         downloadedBytes: Int64 = 0,
         totalBytes: Int64 = 0,
         completedItems: Int64 = 0,
-        totalItems: Int64 = 0
+        totalItems: Int64 = 0,
+        isCancelling: Bool = false
     ) {
         self.reference = reference
         self.downloadedBytes = downloadedBytes
         self.totalBytes = totalBytes
         self.completedItems = completedItems
         self.totalItems = totalItems
+        self.isCancelling = isCancelling
     }
 
     var fractionCompleted: Double? {
@@ -179,6 +182,9 @@ struct ImagePullProgress: Hashable, Sendable {
     }
 
     var summary: String {
+        if isCancelling {
+            return "Cancelling..."
+        }
         if totalBytes > 0 {
             return "\(percentLabel) · \(Self.byteCountString(downloadedBytes)) of \(Self.byteCountString(totalBytes))"
         }
@@ -209,6 +215,10 @@ struct ImagePullProgress: Hashable, Sendable {
         default:
             break
         }
+    }
+
+    mutating func markCancelling() {
+        isCancelling = true
     }
 
     private static func byteCountString(_ byteCount: Int64) -> String {
@@ -411,6 +421,7 @@ final class AppState: ObservableObject {
     private let service: ContainerSDKService
     private var hasLoadedOnce = false
     private var transientWorkloads: [String: [WorkloadRecord]] = [:]
+    private var imagePullTasks: [String: Task<Void, Never>] = [:]
 
     init(service: ContainerSDKService = ContainerSDKService()) {
         self.service = service
@@ -563,26 +574,57 @@ final class AppState: ObservableObject {
             )
             return
         }
+        let pullKey = imagePullKey(for: trimmed)
+        if imagePullTasks[pullKey] != nil {
+            selectedSidebar = .images
+            selectedImageReference = displayedImages.first {
+                ContainerSDKService.imageReferencesMatch($0.reference, trimmed)
+            }?.reference ?? trimmed
+            return
+        }
         guard !isMutating else { return }
 
         startImagePull(reference: trimmed)
 
-        runMutation(activity: "Pulling \(trimmed)") { [service] in
+        let task = runMutation(activity: "Pulling \(trimmed)") { [service] in
             defer {
                 self.finishImagePull(reference: trimmed)
             }
 
-            let image = try await service.pullImage(reference: trimmed, credentials: credentials) { progress in
-                await MainActor.run {
-                    self.updateImagePull(progress)
+            do {
+                let image = try await service.pullImage(reference: trimmed, credentials: credentials) { progress in
+                    await MainActor.run {
+                        self.updateImagePull(progress)
+                    }
                 }
+                self.finishImagePull(reference: trimmed)
+                await self.refreshAll()
+                self.selectedSidebar = .images
+                self.selectedImageReference = self.displayedImages.first {
+                    ContainerSDKService.imageReferencesMatch($0.reference, image.reference)
+                }?.reference ?? image.reference
+            } catch {
+                if self.isCancellation(error) {
+                    self.finishImagePull(reference: trimmed)
+                    self.reconcileSelections()
+                    self.banner = AppBanner(
+                        title: "Image pull cancelled",
+                        message: "Stopped downloading \(trimmed). You can pull it again later.",
+                        style: .info
+                    )
+                    return
+                }
+                throw error
             }
-            await self.refreshAll()
-            self.selectedSidebar = .images
-            self.selectedImageReference = self.displayedImages.first {
-                ContainerSDKService.imageReferencesMatch($0.reference, image.reference)
-            }?.reference ?? image.reference
         }
+        imagePullTasks[pullKey] = task
+    }
+
+    func cancelImagePull(reference: String) {
+        let pullKey = imagePullKey(for: reference)
+        guard let task = imagePullTasks[pullKey] else { return }
+        markImagePullCancelling(reference: reference)
+        task.cancel()
     }
 
     func addImageReference(reference: String) {
@@ -860,11 +902,11 @@ final class AppState: ObservableObject {
     }
 
     func imagePullProgress(for reference: String) -> ImagePullProgress? {
-        if let progress = imagePulls[reference] {
+        let referenceKey = imagePullKey(for: reference)
+        if let progress = imagePulls[referenceKey] {
             return progress
         }
 
-        let referenceKey = ContainerSDKService.imageReferenceKey(reference)
         return imagePulls.first {
             ContainerSDKService.imageReferenceKey($0.key) == referenceKey
         }?.value
@@ -876,16 +918,19 @@ final class AppState: ObservableObject {
             ContainerSDKService.imageReferencesMatch(selectedImageReference, image.reference)
     }
 
+    @discardableResult
     private func runMutation(
         activity: String,
         operation: @escaping @MainActor @Sendable () async throws -> Void
-    ) {
-        guard !isMutating else { return }
+    ) -> Task<Void, Never> {
+        guard !isMutating else {
+            return Task {}
+        }
         isMutating = true
         activityMessage = activity
         banner = nil
 
-        Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 self.isMutating = false
@@ -895,6 +940,7 @@ final class AppState: ObservableObject {
             do {
                 try await operation()
             } catch {
+                guard !self.isCancellation(error) else { return }
                 self.showError(title: activity, error: error)
             }
         }
@@ -983,7 +1029,7 @@ final class AppState: ObservableObject {
     }
 
     private func startImagePull(reference: String) {
-        imagePulls[reference] = ImagePullProgress(reference: reference)
+        imagePulls[imagePullKey(for: reference)] = ImagePullProgress(reference: reference)
         selectedSidebar = .images
         selectedImageReference = displayedImages.first {
             ContainerSDKService.imageReferencesMatch($0.reference, reference)
@@ -991,12 +1037,37 @@ final class AppState: ObservableObject {
     }
 
     private func updateImagePull(_ progress: ImagePullProgress) {
-        imagePulls[progress.reference] = progress
-        activityMessage = "Pulling \(progress.reference) · \(progress.summary)"
+        let pullKey = imagePullKey(for: progress.reference)
+        var progress = progress
+        if imagePulls[pullKey]?.isCancelling == true {
+            progress.markCancelling()
+        }
+        imagePulls[pullKey] = progress
+        activityMessage = progress.isCancelling
+            ? "Cancelling \(progress.reference)"
+            : "Pulling \(progress.reference) · \(progress.summary)"
+    }
+
+    private func markImagePullCancelling(reference: String) {
+        let pullKey = imagePullKey(for: reference)
+        var progress = imagePulls[pullKey] ?? ImagePullProgress(reference: reference)
+        progress.markCancelling()
+        imagePulls[pullKey] = progress
+        activityMessage = "Cancelling \(progress.reference)"
     }
 
     private func finishImagePull(reference: String) {
-        imagePulls[reference] = nil
+        let pullKey = imagePullKey(for: reference)
+        imagePulls[pullKey] = nil
+        imagePullTasks[pullKey] = nil
+    }
+
+    private func imagePullKey(for reference: String) -> String {
+        ContainerSDKService.imageReferenceKey(reference)
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        Task.isCancelled || error is CancellationError
     }
 
     private func reconcileInteractiveTerminalIO() {

@@ -547,6 +547,9 @@ actor ContainerSDKService {
             try? imageCatalog.remove(reference: image.reference)
             return await Self.makeImageRecord(from: image, availability: .downloaded)
         } catch {
+            if Task.isCancelled || error is CancellationError {
+                throw CancellationError()
+            }
             throw Self.pullImageError(error, reference: trimmed, credentialsWereProvided: credentials != nil)
         }
     }
@@ -1739,6 +1742,7 @@ actor ContainerSDKService {
         credentials: RegistryCredentials?,
         progress: (@Sendable (ImagePullProgress) async -> Void)? = nil
     ) async throws -> Containerization.Image {
+        try Task.checkCancellation()
         let normalizedReference = try ClientImage.normalizeReference(reference)
         let authentication = try registryAuthentication(for: credentials)
         let imageStore = try Containerization.ImageStore(path: bundledContainerAppRoot())

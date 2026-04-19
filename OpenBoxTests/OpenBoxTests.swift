@@ -237,6 +237,18 @@ struct OpenBoxTests {
         #expect(progress.summary == "1 of 4 items")
     }
 
+    @Test func imagePullProgressReportsCancellingState() {
+        var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
+
+        progress.apply(event: "add-total-size", value: 400)
+        progress.apply(event: "add-size", value: 100)
+        progress.markCancelling()
+
+        #expect(progress.isCancelling)
+        #expect(progress.summary == "Cancelling...")
+        #expect(progress.percentLabel == "25%")
+    }
+
     @Test func runtimePlatformDescriptionsIgnoreAttestationManifests() {
         let index = Index(manifests: [
             Descriptor(

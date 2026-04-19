@@ -762,8 +762,10 @@ struct ImageListView: View {
                                         onCreateSandbox(image.reference)
                                     }
                                 } else if image.isPulling {
-                                    Button("Pulling Image") {}
-                                        .disabled(true)
+                                    Button(appState.imagePullProgress(for: image.reference)?.isCancelling == true ? "Cancelling Pull" : "Cancel Pull") {
+                                        appState.cancelImagePull(reference: image.reference)
+                                    }
+                                    .disabled(appState.imagePullProgress(for: image.reference)?.isCancelling == true)
                                 } else {
                                     Button("Pull Image") {
                                         appState.pullImage(reference: image.reference)
@@ -1659,9 +1661,12 @@ struct ImageDetailView: View {
                             .buttonStyle(.borderedProminent)
                             .disabled(appState.isMutating)
                         } else if image.isPulling {
-                            Button("Pulling Image") {}
+                            Button(progress?.isCancelling == true ? "Cancelling..." : "Cancel Pull") {
+                                appState.cancelImagePull(reference: image.reference)
+                            }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(true)
+                                .tint(AppTheme.danger)
+                                .disabled(progress?.isCancelling == true)
                         } else {
                             Button("Pull Image") {
                                 appState.pullImage(reference: image.reference)
