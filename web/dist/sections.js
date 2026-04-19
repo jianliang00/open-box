@@ -1,3 +1,4 @@
+const LATEST_DMG_URL = "https://github.com/jianliang00/open-box/releases/latest/download/OpenBox.dmg";
 const I18N = {
   en: {
     "nav.features": "Features",
@@ -400,7 +401,7 @@ const Hero = () => {
     maxWidth: 680,
     margin: "0 0 36px 0",
     fontWeight: 400
-  } }, tr("hero.body")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 24 } }, /* @__PURE__ */ React.createElement(Btn, { variant: "accent", size: "lg", icon: "download", href: "https://github.com/jianliang00/open-box/releases/latest" }, tr("hero.download")), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", size: "lg", icon: "github", iconRight: "arrow-up-right", href: "https://github.com/jianliang00/open-box" }, tr("hero.source")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-4)", marginLeft: compact ? 0 : 8 } }, /* @__PURE__ */ React.createElement(Icon, { name: "check", size: 14 }), " ", tr("hero.status"))))), /* @__PURE__ */ React.createElement(Section, { pad: [24, 32], style: { paddingTop: 24 } }, /* @__PURE__ */ React.createElement(HeroShowcase, null)), /* @__PURE__ */ React.createElement(Section, { pad: [40, 32], style: { paddingTop: 8, paddingBottom: 40 } }, /* @__PURE__ */ React.createElement("div", { style: {
+  } }, tr("hero.body")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 24 } }, /* @__PURE__ */ React.createElement(Btn, { variant: "accent", size: "lg", icon: "download", href: LATEST_DMG_URL }, tr("hero.download")), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", size: "lg", icon: "github", iconRight: "arrow-up-right", href: "https://github.com/jianliang00/open-box" }, tr("hero.source")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-4)", marginLeft: compact ? 0 : 8 } }, /* @__PURE__ */ React.createElement(Icon, { name: "check", size: 14 }), " ", tr("hero.status"))))), /* @__PURE__ */ React.createElement(Section, { pad: [24, 32], style: { paddingTop: 24 } }, /* @__PURE__ */ React.createElement(HeroShowcase, null)), /* @__PURE__ */ React.createElement(Section, { pad: [40, 32], style: { paddingTop: 8, paddingBottom: 40 } }, /* @__PURE__ */ React.createElement("div", { style: {
     display: "grid",
     gridTemplateColumns: compact ? "1fr" : "repeat(4, 1fr)",
     gap: 0,
@@ -947,7 +948,7 @@ const Footer = () => {
       [tr("footer.license"), "https://github.com/jianliang00/open-box/blob/main/LICENSE"]
     ]],
     [tr("footer.releases"), [
-      [tr("footer.latest"), "https://github.com/jianliang00/open-box/releases/latest"],
+      [tr("footer.latest"), LATEST_DMG_URL],
       [tr("footer.changelog"), "https://github.com/jianliang00/open-box/releases/tag/0.0.6"],
       [tr("footer.actions"), "https://github.com/jianliang00/open-box/actions"]
     ]],

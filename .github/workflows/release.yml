@@ -198,6 +198,11 @@ jobs:
           /usr/bin/xcrun stapler validate "${dmg_path}"
           /usr/sbin/spctl -a -t open --context context:primary-signature -vv "${dmg_path}"
 
+          stable_dmg_path="${GITHUB_WORKSPACE}/outputs/openbox-app/OpenBox.dmg"
+          /bin/cp "${dmg_path}" "${stable_dmg_path}"
+          /usr/bin/codesign --verify --verbose=2 "${stable_dmg_path}"
+          /usr/bin/xcrun stapler validate "${stable_dmg_path}"
+
       - name: Cleanup signing keychain
         if: ${{ always() }}
         run: |
@@ -237,6 +242,7 @@ jobs:
           echo "Checking for expected artifacts..."
           ls -la outputs/openbox-app/
           test -e outputs/openbox-app/OpenBox-${GITHUB_REF_NAME}.dmg || (echo "Missing OpenBox app dmg!" && exit 1)
+          test -e outputs/openbox-app/OpenBox.dmg || (echo "Missing stable OpenBox dmg!" && exit 1)
 
       - name: Create release
         uses: softprops/action-gh-release@v2

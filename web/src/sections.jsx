@@ -2,6 +2,8 @@
    Landing sections for OpenBox
    ============================================================ */
 
+const LATEST_DMG_URL = "https://github.com/jianliang00/open-box/releases/latest/download/OpenBox.dmg";
+
 const I18N = {
   en: {
     "nav.features": "Features",
@@ -435,7 +437,7 @@ const Hero = () => {
           </p>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
-            <Btn variant="accent" size="lg" icon="download" href="https://github.com/jianliang00/open-box/releases/latest">
+            <Btn variant="accent" size="lg" icon="download" href={LATEST_DMG_URL}>
               {tr("hero.download")}
             </Btn>
             <Btn variant="ghost" size="lg" icon="github" iconRight="arrow-up-right" href="https://github.com/jianliang00/open-box">
@@ -1173,7 +1175,7 @@ const Footer = () => {
       [tr("footer.license"), "https://github.com/jianliang00/open-box/blob/main/LICENSE"],
     ]],
     [tr("footer.releases"), [
-      [tr("footer.latest"), "https://github.com/jianliang00/open-box/releases/latest"],
+      [tr("footer.latest"), LATEST_DMG_URL],
       [tr("footer.changelog"), "https://github.com/jianliang00/open-box/releases/tag/0.0.6"],
       [tr("footer.actions"), "https://github.com/jianliang00/open-box/actions"],
     ]],
