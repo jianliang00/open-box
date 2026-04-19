@@ -62,8 +62,49 @@ enum AppAppearancePreference: String, CaseIterable, Identifiable {
         }
     }
 
+    func resolvedColorScheme(systemColorScheme: ColorScheme) -> ColorScheme {
+        colorScheme ?? systemColorScheme
+    }
+
+    func resolvedNSAppearance(systemColorScheme: ColorScheme) -> NSAppearance? {
+        nsAppearance ?? systemColorScheme.nsAppearance
+    }
+
     static func preference(for rawValue: String) -> AppAppearancePreference {
         AppAppearancePreference(rawValue: rawValue) ?? .system
+    }
+}
+
+private final class SystemAppearanceObserver: ObservableObject {
+    @Published private(set) var colorScheme: ColorScheme
+
+    private var observation: NSKeyValueObservation?
+
+    init(application: NSApplication = .shared) {
+        colorScheme = Self.colorScheme(for: application.effectiveAppearance)
+        observation = application.observe(\.effectiveAppearance, options: [.new]) { [weak self] application, _ in
+            let colorScheme = Self.colorScheme(for: application.effectiveAppearance)
+            DispatchQueue.main.async {
+                self?.colorScheme = colorScheme
+            }
+        }
+    }
+
+    private static func colorScheme(for appearance: NSAppearance) -> ColorScheme {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+    }
+}
+
+private extension ColorScheme {
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .light:
+            return NSAppearance(named: .aqua)
+        case .dark:
+            return NSAppearance(named: .darkAqua)
+        @unknown default:
+            return nil
+        }
     }
 }
 
@@ -71,6 +112,7 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @AppStorage(AppAppearancePreference.storageKey) private var appearancePreferenceRawValue = AppAppearancePreference.system.rawValue
 
+    @StateObject private var systemAppearance = SystemAppearanceObserver()
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingAddImage = false
     @State private var showingCreateSandbox = false
@@ -164,16 +206,22 @@ struct ContentView: View {
         .background(AppTheme.windowSurface.ignoresSafeArea())
         .background(
             WindowChromeConfigurator(
-                appearancePreference: appearancePreference
+                appearancePreference: appearancePreference,
+                systemColorScheme: systemAppearance.colorScheme
             )
         )
-        .preferredColorScheme(appearancePreference.colorScheme)
+        .preferredColorScheme(
+            appearancePreference.resolvedColorScheme(
+                systemColorScheme: systemAppearance.colorScheme
+            )
+        )
         .frame(minWidth: 1180, minHeight: 680)
     }
 }
 
 private struct WindowChromeConfigurator: NSViewRepresentable {
     let appearancePreference: AppAppearancePreference
+    let systemColorScheme: ColorScheme
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -191,7 +239,7 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
 
     private func configure(window: NSWindow?) {
         guard let window else { return }
-        window.appearance = appearancePreference.nsAppearance
+        window.appearance = appearancePreference.resolvedNSAppearance(systemColorScheme: systemColorScheme)
         window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = false
