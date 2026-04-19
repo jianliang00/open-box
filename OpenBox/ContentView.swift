@@ -292,12 +292,12 @@ struct SidebarView: View {
 
             HStack(spacing: 8) {
                 Circle()
-                    .fill(appState.systemStatus.isAvailable ? AppTheme.success : AppTheme.outline)
+                    .fill(appState.systemStatus.runtimeIndicatorColor)
                     .frame(width: 7, height: 7)
                 Text("Runtime")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(AppTheme.onSurfaceVariant)
-                Text(appState.systemStatus.isAvailable ? "online" : "offline")
+                Text(appState.systemStatus.runtimeIndicatorLabel)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(AppTheme.onSurface)
             }
@@ -416,8 +416,8 @@ struct SandboxListView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
 
-            if !appState.systemStatus.isAvailable {
-                ServiceUnavailableView(message: appState.systemStatus.lastError)
+            if appState.systemStatus.needsServiceNotice {
+                ServiceConnectionStatusView(status: appState.systemStatus)
                     .padding(.horizontal, 16)
                 Spacer()
             } else if filteredSandboxes.isEmpty {
@@ -732,8 +732,8 @@ struct ImageListView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
 
-            if !appState.systemStatus.isAvailable {
-                ServiceUnavailableView(message: appState.systemStatus.lastError)
+            if appState.systemStatus.needsServiceNotice {
+                ServiceConnectionStatusView(status: appState.systemStatus)
                     .padding(.horizontal, 16)
                 Spacer()
             } else if filteredImages.isEmpty {
@@ -820,9 +820,7 @@ struct SettingsSummaryView: View {
                     )
                     SettingsCard(
                         title: "Container Services",
-                        detail: appState.systemStatus.isAvailable
-                            ? "Connected to local node"
-                            : (appState.systemStatus.lastError ?? "Container services unavailable")
+                        detail: appState.systemStatus.settingsDetail
                     )
                     SettingsCard(
                         title: "Diagnostics",
@@ -1006,8 +1004,8 @@ struct SandboxDetailView: View {
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
-                            if !appState.systemStatus.isAvailable {
-                                ServiceUnavailableView(message: appState.systemStatus.lastError)
+                            if appState.systemStatus.needsServiceNotice {
+                                ServiceConnectionStatusView(status: appState.systemStatus)
                             }
 
                             WorkloadDetailView(
@@ -1023,8 +1021,8 @@ struct SandboxDetailView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        if !appState.systemStatus.isAvailable {
-                            ServiceUnavailableView(message: appState.systemStatus.lastError)
+                        if appState.systemStatus.needsServiceNotice {
+                            ServiceConnectionStatusView(status: appState.systemStatus)
                         }
 
                         SandboxSummaryCard(
@@ -1630,8 +1628,8 @@ struct ImageDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if !appState.systemStatus.isAvailable {
-                    ServiceUnavailableView(message: appState.systemStatus.lastError)
+                if appState.systemStatus.needsServiceNotice {
+                    ServiceConnectionStatusView(status: appState.systemStatus)
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -1753,7 +1751,7 @@ struct SettingsDetailView: View {
                 }
 
                 InfoCard(title: "Container Services") {
-                    PropertyRow(label: "Connected", value: appState.systemStatus.isAvailable ? "Yes" : "No")
+                    PropertyRow(label: "Connected", value: appState.systemStatus.connectedValue)
                     PropertyRow(label: "Version", value: appState.systemStatus.version ?? "—")
                     PropertyRow(label: "Build", value: appState.systemStatus.build ?? "—")
                     if let lastError = appState.systemStatus.lastError {
@@ -2385,6 +2383,48 @@ struct SectionBreak: View {
 
     var body: some View {
         Color.clear.frame(height: height)
+    }
+}
+
+struct ServiceConnectionStatusView: View {
+    let status: SystemStatus
+
+    var body: some View {
+        switch status.state {
+        case .connecting:
+            ServiceConnectingView()
+        case .unavailable:
+            ServiceUnavailableView(message: status.lastError)
+        case .available:
+            EmptyView()
+        }
+    }
+}
+
+struct ServiceConnectingView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(AppTheme.accent)
+                Text("Connecting to container services")
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundColor(AppTheme.accent)
+            }
+
+            Text("OpenBox is starting or reconnecting to the bundled runtime.")
+                .font(AppTheme.metadataFont)
+                .foregroundColor(AppTheme.onSurfaceVariant)
+                .textSelection(.enabled)
+            Text("This can take a few seconds when the app launches.")
+                .font(AppTheme.metadataFont)
+                .foregroundColor(AppTheme.outline)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.selectionSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -3290,6 +3330,52 @@ extension SidebarSection {
             return "shippingbox.fill"
         case .settings:
             return "gearshape.fill"
+        }
+    }
+}
+
+extension SystemStatus {
+    var runtimeIndicatorLabel: String {
+        switch state {
+        case .connecting:
+            return "connecting"
+        case .available:
+            return "online"
+        case .unavailable:
+            return "offline"
+        }
+    }
+
+    var runtimeIndicatorColor: Color {
+        switch state {
+        case .connecting:
+            return AppTheme.accent
+        case .available:
+            return AppTheme.success
+        case .unavailable:
+            return AppTheme.outline
+        }
+    }
+
+    var settingsDetail: String {
+        switch state {
+        case .connecting:
+            return "Connecting to local node"
+        case .available:
+            return "Connected to local node"
+        case .unavailable:
+            return lastError ?? "Container services unavailable"
+        }
+    }
+
+    var connectedValue: String {
+        switch state {
+        case .connecting:
+            return "Connecting"
+        case .available:
+            return "Yes"
+        case .unavailable:
+            return "No"
         }
     }
 }

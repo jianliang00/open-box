@@ -122,6 +122,24 @@ struct OpenBoxTests {
         #expect(!ContainerSDKService.bundledRuntimeSignatureMatchesStored(current: current, storedData: nil))
     }
 
+    @Test func systemStatusCanRepresentConnectingWithoutShowingPreviousError() {
+        let failed = SystemStatus(
+            isAvailable: false,
+            version: nil,
+            build: nil,
+            appRoot: nil,
+            installRoot: nil,
+            lastError: "could not reach service"
+        )
+
+        let connecting = failed.connecting()
+
+        #expect(connecting.isConnecting)
+        #expect(!connecting.isAvailable)
+        #expect(connecting.needsServiceNotice)
+        #expect(connecting.lastError == nil)
+    }
+
     @Test func registryHostIsResolvedFromImageReference() {
         #expect(ContainerSDKService.registryHost(forImageReference: "ghcr.io/org/image:tag") == "ghcr.io")
         #expect(ContainerSDKService.registryHost(forImageReference: "localhost:5000/org/image:tag") == "localhost:5000")

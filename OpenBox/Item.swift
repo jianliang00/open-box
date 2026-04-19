@@ -300,16 +300,88 @@ struct SandboxDetail: Hashable {
     var lastError: String?
 }
 
+enum SystemConnectionState: Hashable {
+    case connecting
+    case available
+    case unavailable
+}
+
 struct SystemStatus: Hashable {
-    var isAvailable: Bool
+    var state: SystemConnectionState
     var version: String?
     var build: String?
     var appRoot: String?
     var installRoot: String?
     var lastError: String?
 
+    var isAvailable: Bool {
+        state == .available
+    }
+
+    var isConnecting: Bool {
+        state == .connecting
+    }
+
+    var needsServiceNotice: Bool {
+        state != .available
+    }
+
+    init(
+        state: SystemConnectionState,
+        version: String?,
+        build: String?,
+        appRoot: String?,
+        installRoot: String?,
+        lastError: String?
+    ) {
+        self.state = state
+        self.version = version
+        self.build = build
+        self.appRoot = appRoot
+        self.installRoot = installRoot
+        self.lastError = lastError
+    }
+
+    init(
+        isAvailable: Bool,
+        version: String?,
+        build: String?,
+        appRoot: String?,
+        installRoot: String?,
+        lastError: String?
+    ) {
+        self.init(
+            state: isAvailable ? .available : .unavailable,
+            version: version,
+            build: build,
+            appRoot: appRoot,
+            installRoot: installRoot,
+            lastError: lastError
+        )
+    }
+
+    func connecting() -> SystemStatus {
+        SystemStatus(
+            state: .connecting,
+            version: version,
+            build: build,
+            appRoot: appRoot,
+            installRoot: installRoot,
+            lastError: nil
+        )
+    }
+
+    static let connecting = SystemStatus(
+        state: .connecting,
+        version: nil,
+        build: nil,
+        appRoot: nil,
+        installRoot: nil,
+        lastError: nil
+    )
+
     static let unavailable = SystemStatus(
-        isAvailable: false,
+        state: .unavailable,
         version: nil,
         build: nil,
         appRoot: nil,
@@ -407,7 +479,7 @@ final class AppState: ObservableObject {
     @Published var selectedSandboxID: String?
     @Published var selectedWorkloadID: String?
     @Published var selectedImageReference: String?
-    @Published var systemStatus: SystemStatus = .unavailable
+    @Published var systemStatus: SystemStatus = .connecting
     @Published var images: [OCIImageRecord] = []
     @Published var sandboxes: [SandboxRecord] = []
     @Published var sandboxDetails: [String: SandboxDetail] = [:]
@@ -502,6 +574,7 @@ final class AppState: ObservableObject {
     func refreshAll() async {
         guard !isRefreshing else { return }
         isRefreshing = true
+        systemStatus = systemStatus.connecting()
         defer { isRefreshing = false }
 
         do {
