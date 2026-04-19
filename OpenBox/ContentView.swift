@@ -18,10 +18,21 @@ struct ContentView: View {
     @State private var createSandboxReference: String?
     @State private var runWorkloadTarget: SandboxRecord?
 
+    private var toolbarTitle: String {
+        switch appState.selectedSidebar {
+        case .sandboxes:
+            return appState.selectedSandbox?.name ?? "Sandboxes"
+        case .images:
+            return appState.selectedImage?.reference ?? "Images"
+        case .settings:
+            return "Settings"
+        }
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selection: $appState.selectedSidebar)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 260)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 232, max: 250)
         } content: {
             switch appState.selectedSidebar {
             case .sandboxes:
@@ -49,6 +60,12 @@ struct ContentView: View {
         .task {
             await appState.refreshAllIfNeeded()
         }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                ToolbarBreadcrumb(title: toolbarTitle)
+            }
+        }
+        .toolbar(removing: .title)
         .sheet(isPresented: $showingAddImage) {
             AddImageSheet()
                 .environmentObject(appState)
@@ -68,8 +85,9 @@ struct ContentView: View {
                 BannerView(banner: banner) {
                     appState.clearBanner()
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(AppTheme.windowChromeSurface)
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -107,78 +125,184 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
         window.appearance = NSAppearance(named: .aqua)
         window.title = ""
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.toolbarStyle = .unifiedCompact
+        window.titlebarAppearsTransparent = false
+        window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .line
         window.backgroundColor = NSColor(
-            red: 245 / 255,
-            green: 245 / 255,
-            blue: 247 / 255,
+            red: 246 / 255,
+            green: 247 / 255,
+            blue: 251 / 255,
             alpha: 1
         )
     }
 }
 
+struct ToolbarBreadcrumb: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("OpenBox")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(AppTheme.outline)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(AppTheme.outline.opacity(0.75))
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(AppTheme.onSurface)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: 220, alignment: .leading)
+        .frame(height: 18, alignment: .leading)
+        .controlSize(.small)
+    }
+}
+
 struct SidebarView: View {
+    @EnvironmentObject private var appState: AppState
     @Binding var selection: SidebarSection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(SidebarSection.allCases) { section in
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(AppTheme.accent)
+                    Image(systemName: "cube.box.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .frame(width: 28, height: 28)
+
+                Text("OpenBox")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.onSurface)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 30)
+            .padding(.bottom, 28)
+
+            SidebarGroupTitle("Workspace")
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach([SidebarSection.sandboxes, .images]) { section in
                     Button {
                         selection = section
                     } label: {
-                        SidebarRow(section: section, isSelected: selection == section)
+                        SidebarRow(
+                            section: section,
+                            isSelected: selection == section,
+                            count: count(for: section)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.top, 24)
+
+            SidebarGroupTitle("System")
+                .padding(.top, 26)
+
+            Button {
+                selection = .settings
+            } label: {
+                SidebarRow(
+                    section: .settings,
+                    isSelected: selection == .settings,
+                    count: nil
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
 
             Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(appState.systemStatus.isAvailable ? AppTheme.success : AppTheme.outline)
+                    .frame(width: 7, height: 7)
+                Text("Runtime")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppTheme.onSurfaceVariant)
+                Text(appState.systemStatus.isAvailable ? "online" : "offline")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.onSurface)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(AppTheme.separator)
+                    .frame(height: 1)
+            }
         }
         .background(AppTheme.sidebarSurface)
+    }
+
+    private func count(for section: SidebarSection) -> Int? {
+        switch section {
+        case .sandboxes:
+            return appState.sandboxes.count
+        case .images:
+            return appState.displayedImages.count
+        case .settings:
+            return nil
+        }
+    }
+}
+
+struct SidebarGroupTitle: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundColor(AppTheme.outline.opacity(0.72))
+            .textCase(.uppercase)
+            .padding(.horizontal, 22)
+            .padding(.bottom, 8)
     }
 }
 
 struct SidebarRow: View {
     let section: SidebarSection
     let isSelected: Bool
+    let count: Int?
 
     var body: some View {
         HStack(spacing: 10) {
-            selectionMark
-
             Image(systemName: section.iconName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(isSelected ? AppTheme.accent : AppTheme.outline)
-                .frame(width: 18)
+                .frame(width: 20)
 
             Text(section.rawValue)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.onSurfaceVariant)
+                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(isSelected ? AppTheme.onSurface : AppTheme.onSurfaceVariant)
 
             Spacer(minLength: 0)
+
+            if let count {
+                Text("\(count)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.outline)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? AppTheme.selectionSurface : Color.clear)
+                .fill(isSelected ? AppTheme.sidebarSelectedSurface : Color.clear)
         )
-    }
-
-    @ViewBuilder
-    private var selectionMark: some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(AppTheme.selectionMark)
-                .frame(width: 3, height: 18)
-        } else {
-            Color.clear.frame(width: 3, height: 18)
-        }
     }
 }
 
@@ -202,6 +326,7 @@ struct SandboxListView: View {
         VStack(spacing: 0) {
             ListColumnHeader(
                 title: "Sandboxes",
+                count: appState.sandboxes.count,
                 primaryTitle: "New",
                 primarySystemImage: "plus",
                 secondarySystemImage: "arrow.clockwise",
@@ -261,8 +386,8 @@ struct SandboxListView: View {
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundColor(AppTheme.outline)
                                         .textCase(.uppercase)
-                                        .padding(.leading, 22)
-                                        .padding(.top, 2)
+                                        .padding(.leading, 72)
+                                        .padding(.top, 8)
 
                                     ForEach(visibleWorkloads) { workload in
                                         SandboxTreeWorkloadRow(
@@ -274,7 +399,7 @@ struct SandboxListView: View {
                                                 expandedSandboxIDs.insert(sandbox.id)
                                             }
                                         )
-                                        .padding(.leading, 16)
+                                        .padding(.leading, 56)
                                     }
                                 }
                             }
@@ -285,7 +410,7 @@ struct SandboxListView: View {
                 }
             }
         }
-        .navigationSplitViewColumnWidth(min: 360, ideal: 408, max: 430)
+        .navigationSplitViewColumnWidth(min: 292, ideal: 328, max: 360)
         .background(AppTheme.contentSurface)
         .onAppear {
             if let selectedSandboxID = appState.selectedSandboxID {
@@ -341,13 +466,31 @@ struct SandboxTreeSandboxRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
                 selectionMark
 
-                VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(AppTheme.outline)
+                    .frame(width: 12)
+
+                SandboxGlyph(
+                    systemImage: "cube.box.fill",
+                    color: sandbox.status.color,
+                    fill: sandbox.status.fillColor
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        sandboxLabel
+                        Text(sandbox.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(AppTheme.onSurface)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .layoutPriority(1)
+
                         Spacer(minLength: 10)
+
                         StatusPill(text: sandbox.status.label, color: sandbox.status.color, fill: sandbox.status.fillColor)
                     }
 
@@ -356,49 +499,49 @@ struct SandboxTreeSandboxRow: View {
                         .foregroundColor(AppTheme.outline)
                         .lineLimit(1)
                         .truncationMode(.middle)
+
+                    HStack(spacing: 8) {
+                        Text(resourceLine)
+                            .font(AppTheme.metadataFont)
+                            .foregroundColor(AppTheme.outline)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 8)
+
+                        if let startedAt = sandbox.startedAt, sandbox.status.isRunning {
+                            Text(startedAt.compactRelativeDescription)
+                                .font(AppTheme.metadataFont)
+                                .foregroundColor(AppTheme.outline)
+                                .lineLimit(1)
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 0)
+            .padding(.trailing, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 0)
+        .padding(.vertical, isSelected ? 12 : 10)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? AppTheme.detailSurface : AppTheme.fieldSurface.opacity(0.86))
+                .fill(isSelected ? AppTheme.selectionSurface : Color.clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(
-                    isSelected ? AppTheme.selectionSurface : AppTheme.surfaceContainerHigh.opacity(0.72),
-                    lineWidth: 1
+                    isSelected ? AppTheme.selectionStroke : Color.clear,
+                    lineWidth: isSelected ? 1 : 0
                 )
         )
-        .shadow(color: Color.black.opacity(isSelected ? 0.04 : 0.025), radius: isSelected ? 8 : 5, y: 2)
+        .shadow(color: Color.black.opacity(isSelected ? 0.025 : 0), radius: 8, y: 2)
     }
 
-    private var sandboxLabel: some View {
-        HStack(spacing: 10) {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.caption2.weight(.semibold))
-                .foregroundColor(AppTheme.outline)
-                .frame(width: 12)
-
-            Image(systemName: "folder")
-                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.outline)
-                .frame(width: 18)
-
-            Text(sandbox.name)
-                .font(AppTheme.sectionTitleFont)
-                .foregroundColor(isSelected ? AppTheme.accent : AppTheme.onSurface)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .layoutPriority(1)
-        }
-        .contentShape(Rectangle())
+    private var resourceLine: String {
+        let workloadLabel = workloadCount == 1 ? "1 active" : "\(workloadCount) active"
+        return "\(workloadLabel) · \(sandbox.cpuCores) vCPU · \(sandbox.memoryGB) GB"
     }
 
     @ViewBuilder
@@ -406,11 +549,27 @@ struct SandboxTreeSandboxRow: View {
         if isSelected {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(AppTheme.selectionMark)
-                .frame(width: 3, height: 46)
-                .padding(.top, 2)
+                .frame(width: 4, height: 74)
         } else {
-            Color.clear.frame(width: 3, height: 46)
+            Color.clear.frame(width: 4, height: 74)
         }
+    }
+}
+
+struct SandboxGlyph: View {
+    let systemImage: String
+    let color: Color
+    let fill: Color
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(fill)
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(color)
+        }
+        .frame(width: 30, height: 30)
     }
 }
 
@@ -429,7 +588,7 @@ struct SandboxTreeWorkloadRow: View {
                     .frame(width: 6, height: 6)
 
                 Text(workload.command)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium, design: .monospaced))
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium, design: .monospaced))
                     .foregroundColor(AppTheme.onSurface)
                     .lineLimit(1)
 
@@ -445,11 +604,11 @@ struct SandboxTreeWorkloadRow: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? AppTheme.selectionSurface : AppTheme.detailSurface)
+                    .fill(isSelected ? AppTheme.selectionSurface : Color.clear)
             )
         }
         .buttonStyle(.plain)
-        .shadow(color: Color.black.opacity(0.035), radius: 6, y: 2)
+        .shadow(color: Color.black.opacity(isSelected ? 0.025 : 0), radius: 6, y: 2)
     }
 
     @ViewBuilder
@@ -485,6 +644,7 @@ struct ImageListView: View {
         VStack(spacing: 0) {
             ListColumnHeader(
                 title: "Images",
+                count: appState.displayedImages.count,
                 primaryTitle: "Add",
                 primarySystemImage: "plus",
                 secondarySystemImage: "arrow.clockwise",
@@ -861,51 +1021,9 @@ struct SandboxSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(sandbox.name)
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(AppTheme.onSurface)
-                    .lineLimit(2)
+            summaryHeader
 
-                HStack(spacing: 12) {
-                    StatusBadge(text: sandbox.status.label, color: sandbox.status.color, fill: sandbox.status.fillColor)
-                    Text(uptimeText)
-                        .font(AppTheme.metadataFont)
-                        .foregroundColor(AppTheme.onSurfaceVariant)
-                    Text(sandbox.id)
-                        .font(AppTheme.monoSmallFont)
-                        .foregroundColor(AppTheme.outline)
-                        .lineLimit(1)
-                        .textSelection(.enabled)
-                }
-
-                HStack(spacing: 12) {
-                    Button {
-                        onRunCommand()
-                    } label: {
-                        Label("Run Command", systemImage: "terminal")
-                            .frame(minWidth: 108)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(AppTheme.accent)
-                    .disabled(!sandbox.status.isRunning || appState.isMutating)
-                    .help("Run Command")
-
-                    Button {
-                        appState.toggleSandbox(sandbox.id)
-                    } label: {
-                        Label(toggleSandboxTitle, systemImage: toggleSandboxIcon)
-                            .frame(minWidth: 112)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(sandbox.status.isRunning ? AppTheme.danger : AppTheme.accent)
-                    .foregroundColor(.white)
-                    .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
-                    .help(toggleSandboxTitle)
-                }
-            }
+            actionStrip
 
             SandboxDesktopPanel(
                 sandbox: sandbox,
@@ -962,6 +1080,107 @@ struct SandboxSummaryCard: View {
             }
         } message: {
             Text("This will remove \"\(sandbox.name)\". This action cannot be undone.")
+        }
+    }
+
+    private var summaryHeader: some View {
+        HStack(alignment: .top, spacing: 18) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(AppTheme.sandboxIconGradient)
+                Image(systemName: "cube.box.fill")
+                    .font(.system(size: 27, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 62, height: 62)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(sandbox.name)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundColor(AppTheme.onSurface)
+                    .lineLimit(2)
+
+                HStack(spacing: 12) {
+                    StatusBadge(text: sandbox.status.label, color: sandbox.status.color, fill: sandbox.status.fillColor)
+                    Text(uptimeText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(AppTheme.onSurfaceVariant)
+                }
+
+                Text(sandbox.id)
+                    .font(AppTheme.monoSmallFont)
+                    .foregroundColor(AppTheme.outline)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 12)
+
+            Button {} label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 30, height: 28)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(AppTheme.onSurfaceVariant)
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var actionStrip: some View {
+        HStack(spacing: 12) {
+            Button {
+                onRunCommand()
+            } label: {
+                Label("Run Command", systemImage: "terminal")
+                    .frame(minWidth: 132)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(AppTheme.accent)
+            .disabled(!sandbox.status.isRunning || appState.isMutating)
+            .help("Run Command")
+
+            Button {
+                appState.toggleSandbox(sandbox.id)
+            } label: {
+                Label(toggleSandboxTitle, systemImage: toggleSandboxIcon)
+                    .frame(minWidth: 132)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .tint(sandbox.status.isRunning ? AppTheme.danger : AppTheme.accent)
+            .foregroundColor(sandbox.status.isRunning ? AppTheme.danger : AppTheme.accent)
+            .disabled(appState.isMutating || sandbox.status == .creating || sandbox.status == .pulling)
+            .help(toggleSandboxTitle)
+
+            if sandbox.isMacOSGuest && sandbox.desktopGUIEnabled {
+                Button {
+                    appState.launchDesktop(for: sandbox.id)
+                } label: {
+                    Label("Launch Desktop", systemImage: "display")
+                        .frame(minWidth: 132)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(desktopActionDisabled)
+                .help("Launch Desktop")
+            }
+
+            Spacer(minLength: 12)
+
+            Button {
+                Task {
+                    await appState.refreshSandbox(id: sandbox.id)
+                }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(AppTheme.onSurfaceVariant)
+            .disabled(appState.isRefreshing || appState.isMutating)
         }
     }
 
@@ -1031,7 +1250,12 @@ struct SandboxDesktopPanel: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(AppTheme.sidebarSurface)
+            .background(AppTheme.surfaceSubtle)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AppTheme.separator)
+                    .frame(height: 1)
+            }
 
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 12) {
@@ -1064,10 +1288,10 @@ struct SandboxDesktopPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(AppTheme.detailSurface)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(AppTheme.surfaceContainerHigh.opacity(0.55), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.separator, lineWidth: 1)
         )
     }
 
@@ -1075,9 +1299,9 @@ struct SandboxDesktopPanel: View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(AppTheme.selectionSurface)
-                .frame(width: 42, height: 42)
+                .frame(width: 52, height: 52)
             Image(systemName: desktopGlyphName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(desktopStatusColor)
         }
     }
@@ -1132,14 +1356,14 @@ struct SandboxDesktopPanel: View {
         guard sandbox.isMacOSGuest, sandbox.desktopGUIEnabled else {
             return AppTheme.outline
         }
-        return AppTheme.accent
+        return AppTheme.success
     }
 
     private var desktopStatusFill: Color {
         guard sandbox.isMacOSGuest, sandbox.desktopGUIEnabled else {
             return AppTheme.stoppedSurface
         }
-        return AppTheme.selectionSurface
+        return AppTheme.successSurface
     }
 }
 
@@ -1148,17 +1372,36 @@ struct SandboxDetailSection<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(AppTheme.sectionTitleFont)
-                .foregroundColor(AppTheme.onSurfaceVariant)
-                .textCase(.uppercase)
-            content
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(AppTheme.outline)
+                    .textCase(.uppercase)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(AppTheme.fieldSurface)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AppTheme.separator)
+                    .frame(height: 1)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                content
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.surfaceContainer)
+        .background(AppTheme.detailSurface)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.separator, lineWidth: 1)
+        )
     }
 }
 
@@ -1184,14 +1427,18 @@ struct DiagnosticLogPathDisclosure: View {
             .padding(.top, 10)
         } label: {
             Text("Diagnostic Log Paths")
-                .font(AppTheme.sectionTitleFont)
-                .foregroundColor(AppTheme.onSurfaceVariant)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(AppTheme.outline)
                 .textCase(.uppercase)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.surfaceContainer)
+        .background(AppTheme.detailSurface)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.separator, lineWidth: 1)
+        )
     }
 }
 
@@ -1847,6 +2094,7 @@ struct RunWorkloadSheet: View {
 
 struct ListColumnHeader: View {
     let title: String
+    var count: Int? = nil
     var primaryTitle: String? = nil
     var primarySystemImage: String? = nil
     var secondarySystemImage: String? = nil
@@ -1858,9 +2106,19 @@ struct ListColumnHeader: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(AppTheme.outline)
-                .textCase(.uppercase)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(AppTheme.onSurface)
+
+            if let count {
+                Text("\(count)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.outline)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(AppTheme.surfaceContainer)
+                    .clipShape(Capsule())
+            }
+
             Spacer()
 
             if let primaryTitle, let primarySystemImage, let primaryAction {
@@ -1888,7 +2146,7 @@ struct ListColumnHeader: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 12)
+        .padding(.top, 24)
         .padding(.bottom, 14)
     }
 }
@@ -2064,17 +2322,36 @@ struct InfoCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(AppTheme.sectionTitleFont)
-                .foregroundColor(AppTheme.onSurfaceVariant)
-                .textCase(.uppercase)
-            content
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(AppTheme.outline)
+                    .textCase(.uppercase)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(AppTheme.fieldSurface)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AppTheme.separator)
+                    .frame(height: 1)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                content
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.contentSurface)
+        .background(AppTheme.detailSurface)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.separator, lineWidth: 1)
+        )
     }
 }
 
@@ -2669,11 +2946,13 @@ struct SearchField: View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(AppTheme.outline)
+                .font(.system(size: 14, weight: .semibold))
             TextField(title, text: $text)
                 .textFieldStyle(.plain)
+                .font(.system(size: 14, weight: .regular))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .background(AppTheme.fieldSurface)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .innerFieldShadow()
@@ -2687,8 +2966,8 @@ struct StatusBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .bold))
-            .padding(.horizontal, 8)
+            .font(.system(size: 11, weight: .bold))
+            .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(fill ?? color.opacity(0.16))
             .foregroundColor(color)
@@ -2703,8 +2982,8 @@ struct StatusPill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .padding(.horizontal, 8)
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, 9)
             .padding(.vertical, 3)
             .background(fill ?? color.opacity(0.14))
             .foregroundColor(color)
@@ -2763,27 +3042,36 @@ struct ActivityBubble: View {
 }
 
 enum AppTheme {
-    static let windowSurface = Color(red: 245 / 255, green: 245 / 255, blue: 247 / 255)
-    static let sidebarSurface = Color(red: 242 / 255, green: 242 / 255, blue: 247 / 255)
-    static let contentSurface = Color(red: 247 / 255, green: 248 / 255, blue: 250 / 255)
+    static let chromeHeight: CGFloat = 52
+
+    static let windowSurface = Color(red: 246 / 255, green: 247 / 255, blue: 251 / 255)
+    static let windowChromeSurface = Color(red: 248 / 255, green: 248 / 255, blue: 250 / 255)
+    static let sidebarSurface = Color(red: 244 / 255, green: 246 / 255, blue: 250 / 255)
+    static let sidebarSelectedSurface = Color(red: 230 / 255, green: 233 / 255, blue: 239 / 255)
+    static let contentSurface = Color(red: 250 / 255, green: 251 / 255, blue: 253 / 255)
     static let detailSurface = Color.white
-    static let fieldSurface = Color.white
-    static let surfaceContainer = Color(red: 238 / 255, green: 238 / 255, blue: 240 / 255)
-    static let surfaceContainerHigh = Color(red: 232 / 255, green: 232 / 255, blue: 234 / 255)
+    static let fieldSurface = Color(red: 247 / 255, green: 248 / 255, blue: 250 / 255)
+    static let surfaceSubtle = Color(red: 249 / 255, green: 250 / 255, blue: 252 / 255)
+    static let surfaceContainer = Color(red: 238 / 255, green: 239 / 255, blue: 243 / 255)
+    static let surfaceContainerHigh = Color(red: 226 / 255, green: 229 / 255, blue: 235 / 255)
+    static let separator = Color(red: 225 / 255, green: 228 / 255, blue: 234 / 255)
     static let background = windowSurface
     static let panel = detailSurface
 
     static let onSurface = Color(red: 26 / 255, green: 28 / 255, blue: 29 / 255)
     static let onSurfaceVariant = Color(red: 65 / 255, green: 71 / 255, blue: 84 / 255)
-    static let outline = Color(red: 113 / 255, green: 119 / 255, blue: 134 / 255)
+    static let outline = Color(red: 143 / 255, green: 149 / 255, blue: 160 / 255)
     static let secondary = Color(red: 0 / 255, green: 102 / 255, blue: 135 / 255)
 
-    static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
-    static let selectionMark = Color(red: 90 / 255, green: 200 / 255, blue: 250 / 255)
-    static let selectionSurface = Color(red: 234 / 255, green: 247 / 255, blue: 255 / 255)
+    static let accent = Color(red: 0 / 255, green: 122 / 255, blue: 255 / 255)
+    static let selectionMark = Color(red: 0 / 255, green: 122 / 255, blue: 255 / 255)
+    static let selectionSurface = Color(red: 231 / 255, green: 240 / 255, blue: 255 / 255)
+    static let selectionStroke = Color(red: 174 / 255, green: 205 / 255, blue: 255 / 255)
     static let stoppedSurface = sidebarSurface
     static let errorSurface = Color(red: 255 / 255, green: 241 / 255, blue: 240 / 255)
     static let warningSurface = Color(red: 255 / 255, green: 247 / 255, blue: 230 / 255)
+    static let success = Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255)
+    static let successSurface = Color(red: 224 / 255, green: 246 / 255, blue: 231 / 255)
     static let terminalChrome = Color(red: 31 / 255, green: 35 / 255, blue: 39 / 255)
     static let terminalSurface = Color(red: 18 / 255, green: 24 / 255, blue: 26 / 255)
     static let terminalText = Color(red: 232 / 255, green: 236 / 255, blue: 239 / 255)
@@ -2792,6 +3080,14 @@ enum AppTheme {
     static let highlight = selectionMark
     static let warning = Color(red: 255 / 255, green: 149 / 255, blue: 0 / 255)
     static let danger = Color(red: 255 / 255, green: 59 / 255, blue: 48 / 255)
+    static let sandboxIconGradient = LinearGradient(
+        colors: [
+            Color(red: 0 / 255, green: 168 / 255, blue: 220 / 255),
+            Color(red: 48 / 255, green: 191 / 255, blue: 87 / 255)
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
 
     static let bodyFont = Font.system(size: 13, weight: .regular)
     static let labelFont = Font.system(size: 11, weight: .semibold)
@@ -2860,7 +3156,7 @@ extension SandboxStatus {
         case .pulling, .creating, .starting:
             return AppTheme.accent
         case .running:
-            return AppTheme.accent
+            return AppTheme.success
         case .stopping:
             return AppTheme.warning
         case .stopped, .unknown:
@@ -2873,7 +3169,7 @@ extension SandboxStatus {
     var fillColor: Color {
         switch self {
         case .pulling, .creating, .starting, .running:
-            return AppTheme.selectionSurface
+            return self == .running ? AppTheme.successSurface : AppTheme.selectionSurface
         case .stopping:
             return AppTheme.warningSurface
         case .stopped, .unknown:
@@ -2905,7 +3201,7 @@ extension WorkloadStatus {
     var color: Color {
         switch self {
         case .running:
-            return AppTheme.accent
+            return AppTheme.success
         case .stopping:
             return AppTheme.warning
         case .stopped:
