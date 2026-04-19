@@ -9,14 +9,77 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum AppAppearancePreference: String, CaseIterable, Identifiable {
+    static let storageKey = "openBoxAppearancePreference"
+
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system:
+            return "Follow System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .system:
+            return "OpenBox uses the current macOS appearance."
+        case .light:
+            return "OpenBox stays in light appearance."
+        case .dark:
+            return "OpenBox stays in dark appearance."
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return NSAppearance(named: .aqua)
+        case .dark:
+            return NSAppearance(named: .darkAqua)
+        }
+    }
+
+    static func preference(for rawValue: String) -> AppAppearancePreference {
+        AppAppearancePreference(rawValue: rawValue) ?? .system
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage(AppAppearancePreference.storageKey) private var appearancePreferenceRawValue = AppAppearancePreference.system.rawValue
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingAddImage = false
     @State private var showingCreateSandbox = false
     @State private var createSandboxReference: String?
     @State private var runWorkloadTarget: SandboxRecord?
+
+    private var appearancePreference: AppAppearancePreference {
+        AppAppearancePreference.preference(for: appearancePreferenceRawValue)
+    }
 
     private var toolbarTitle: String {
         switch appState.selectedSidebar {
@@ -99,13 +162,19 @@ struct ContentView: View {
         .font(AppTheme.bodyFont)
         .tint(AppTheme.accent)
         .background(AppTheme.windowSurface.ignoresSafeArea())
-        .background(WindowChromeConfigurator())
-        .preferredColorScheme(.light)
+        .background(
+            WindowChromeConfigurator(
+                appearancePreference: appearancePreference
+            )
+        )
+        .preferredColorScheme(appearancePreference.colorScheme)
         .frame(minWidth: 1180, minHeight: 680)
     }
 }
 
 private struct WindowChromeConfigurator: NSViewRepresentable {
+    let appearancePreference: AppAppearancePreference
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
@@ -122,18 +191,13 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
 
     private func configure(window: NSWindow?) {
         guard let window else { return }
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = appearancePreference.nsAppearance
         window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .line
-        window.backgroundColor = NSColor(
-            red: 246 / 255,
-            green: 247 / 255,
-            blue: 251 / 255,
-            alpha: 1
-        )
+        window.backgroundColor = AppTheme.windowBackgroundNSColor
     }
 }
 
@@ -726,6 +790,11 @@ struct ImageListView: View {
 
 struct SettingsSummaryView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage(AppAppearancePreference.storageKey) private var appearancePreferenceRawValue = AppAppearancePreference.system.rawValue
+
+    private var appearancePreference: AppAppearancePreference {
+        AppAppearancePreference.preference(for: appearancePreferenceRawValue)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -743,11 +812,15 @@ struct SettingsSummaryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     SettingsCard(
+                        title: "Appearance",
+                        detail: appearancePreference.title,
+                        isSelected: true
+                    )
+                    SettingsCard(
                         title: "Container Services",
                         detail: appState.systemStatus.isAvailable
                             ? "Connected to local node"
-                            : (appState.systemStatus.lastError ?? "Container services unavailable"),
-                        isSelected: true
+                            : (appState.systemStatus.lastError ?? "Container services unavailable")
                     )
                     SettingsCard(
                         title: "Diagnostics",
@@ -1635,13 +1708,44 @@ struct ImageDetailView: View {
 
 struct SettingsDetailView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage(AppAppearancePreference.storageKey) private var appearancePreferenceRawValue = AppAppearancePreference.system.rawValue
     @AppStorage("openBoxTerminalDiagnosticsEnabled") private var terminalDiagnosticsEnabled = false
+
+    private var appearancePreference: AppAppearancePreference {
+        AppAppearancePreference.preference(for: appearancePreferenceRawValue)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("System Settings")
                     .font(AppTheme.titleFont)
+
+                InfoCard(title: "Appearance") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .center, spacing: 16) {
+                            Text("Color Scheme")
+                                .font(AppTheme.labelFont)
+                                .foregroundColor(AppTheme.outline)
+                                .textCase(.uppercase)
+
+                            Spacer(minLength: 12)
+
+                            Picker("Color Scheme", selection: $appearancePreferenceRawValue) {
+                                ForEach(AppAppearancePreference.allCases) { preference in
+                                    Text(preference.title).tag(preference.rawValue)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .frame(width: 320)
+                        }
+
+                        Text(appearancePreference.detail)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
 
                 InfoCard(title: "Container Services") {
                     PropertyRow(label: "Connected", value: appState.systemStatus.isAvailable ? "Yes" : "No")
@@ -2126,7 +2230,7 @@ struct ListColumnHeader: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .tint(AppTheme.accent)
+                .tint(AppTheme.primaryButtonTint)
                 .disabled(primaryDisabled)
             }
 
@@ -3058,42 +3162,54 @@ struct ActivityBubble: View {
 enum AppTheme {
     static let chromeHeight: CGFloat = 52
 
-    static let windowSurface = Color(red: 246 / 255, green: 247 / 255, blue: 251 / 255)
-    static let windowChromeSurface = Color(red: 248 / 255, green: 248 / 255, blue: 250 / 255)
-    static let sidebarSurface = Color(red: 244 / 255, green: 246 / 255, blue: 250 / 255)
-    static let sidebarSelectedSurface = Color(red: 230 / 255, green: 233 / 255, blue: 239 / 255)
-    static let contentSurface = Color(red: 250 / 255, green: 251 / 255, blue: 253 / 255)
-    static let detailSurface = Color.white
-    static let fieldSurface = Color(red: 247 / 255, green: 248 / 255, blue: 250 / 255)
-    static let surfaceSubtle = Color(red: 249 / 255, green: 250 / 255, blue: 252 / 255)
-    static let surfaceContainer = Color(red: 238 / 255, green: 239 / 255, blue: 243 / 255)
-    static let surfaceContainerHigh = Color(red: 226 / 255, green: 229 / 255, blue: 235 / 255)
-    static let separator = Color(red: 225 / 255, green: 228 / 255, blue: 234 / 255)
+    private static let lightWindowBackgroundNSColor = nsColor(246, 247, 251)
+    private static let darkWindowBackgroundNSColor = nsColor(20, 21, 23)
+
+    static let windowBackgroundNSColor = adaptiveNSColor(
+        light: lightWindowBackgroundNSColor,
+        dark: darkWindowBackgroundNSColor
+    )
+
+    static let windowSurface = adaptiveColor(
+        light: lightWindowBackgroundNSColor,
+        dark: darkWindowBackgroundNSColor
+    )
+    static let windowChromeSurface = adaptiveColor(light: (248, 248, 250), dark: (24, 25, 27))
+    static let sidebarSurface = adaptiveColor(light: (244, 246, 250), dark: (18, 19, 21))
+    static let sidebarSelectedSurface = adaptiveColor(light: (230, 233, 239), dark: (39, 42, 47))
+    static let contentSurface = adaptiveColor(light: (250, 251, 253), dark: (24, 25, 28))
+    static let detailSurface = adaptiveColor(light: (255, 255, 255), dark: (30, 31, 34))
+    static let fieldSurface = adaptiveColor(light: (247, 248, 250), dark: (38, 39, 43))
+    static let surfaceSubtle = adaptiveColor(light: (249, 250, 252), dark: (35, 36, 39))
+    static let surfaceContainer = adaptiveColor(light: (238, 239, 243), dark: (47, 49, 54))
+    static let surfaceContainerHigh = adaptiveColor(light: (226, 229, 235), dark: (62, 64, 70))
+    static let separator = adaptiveColor(light: (225, 228, 234), dark: (65, 67, 73))
     static let background = windowSurface
     static let panel = detailSurface
 
-    static let onSurface = Color(red: 26 / 255, green: 28 / 255, blue: 29 / 255)
-    static let onSurfaceVariant = Color(red: 65 / 255, green: 71 / 255, blue: 84 / 255)
-    static let outline = Color(red: 143 / 255, green: 149 / 255, blue: 160 / 255)
-    static let secondary = Color(red: 0 / 255, green: 102 / 255, blue: 135 / 255)
+    static let onSurface = adaptiveColor(light: (26, 28, 29), dark: (236, 238, 241))
+    static let onSurfaceVariant = adaptiveColor(light: (65, 71, 84), dark: (194, 198, 205))
+    static let outline = adaptiveColor(light: (143, 149, 160), dark: (139, 145, 156))
+    static let secondary = adaptiveColor(light: (0, 102, 135), dark: (118, 210, 232))
 
-    static let accent = Color(red: 0 / 255, green: 122 / 255, blue: 255 / 255)
-    static let selectionMark = Color(red: 0 / 255, green: 122 / 255, blue: 255 / 255)
-    static let selectionSurface = Color(red: 231 / 255, green: 240 / 255, blue: 255 / 255)
-    static let selectionStroke = Color(red: 174 / 255, green: 205 / 255, blue: 255 / 255)
+    static let accent = adaptiveColor(light: (0, 122, 255), dark: (82, 168, 255))
+    static let primaryButtonTint = adaptiveColor(light: (0, 122, 255), dark: (0, 110, 230))
+    static let selectionMark = adaptiveColor(light: (0, 122, 255), dark: (82, 168, 255))
+    static let selectionSurface = adaptiveColor(light: (231, 240, 255), dark: (30, 54, 88))
+    static let selectionStroke = adaptiveColor(light: (174, 205, 255), dark: (73, 132, 210))
     static let stoppedSurface = sidebarSurface
-    static let errorSurface = Color(red: 255 / 255, green: 241 / 255, blue: 240 / 255)
-    static let warningSurface = Color(red: 255 / 255, green: 247 / 255, blue: 230 / 255)
-    static let success = Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255)
-    static let successSurface = Color(red: 224 / 255, green: 246 / 255, blue: 231 / 255)
-    static let terminalChrome = Color(red: 31 / 255, green: 35 / 255, blue: 39 / 255)
-    static let terminalSurface = Color(red: 18 / 255, green: 24 / 255, blue: 26 / 255)
-    static let terminalText = Color(red: 232 / 255, green: 236 / 255, blue: 239 / 255)
-    static let terminalMuted = Color(red: 139 / 255, green: 148 / 255, blue: 158 / 255)
-    static let terminalAccent = Color(red: 40 / 255, green: 160 / 255, blue: 196 / 255)
+    static let errorSurface = adaptiveColor(light: (255, 241, 240), dark: (72, 28, 31))
+    static let warningSurface = adaptiveColor(light: (255, 247, 230), dark: (68, 48, 19))
+    static let success = adaptiveColor(light: (52, 199, 89), dark: (78, 220, 112))
+    static let successSurface = adaptiveColor(light: (224, 246, 231), dark: (25, 64, 40))
+    static let terminalChrome = fixedColor(31, 35, 39)
+    static let terminalSurface = fixedColor(18, 24, 26)
+    static let terminalText = fixedColor(232, 236, 239)
+    static let terminalMuted = fixedColor(139, 148, 158)
+    static let terminalAccent = fixedColor(40, 160, 196)
     static let highlight = selectionMark
-    static let warning = Color(red: 255 / 255, green: 149 / 255, blue: 0 / 255)
-    static let danger = Color(red: 255 / 255, green: 59 / 255, blue: 48 / 255)
+    static let warning = adaptiveColor(light: (255, 149, 0), dark: (255, 184, 77))
+    static let danger = adaptiveColor(light: (255, 59, 48), dark: (255, 105, 97))
     static let bodyFont = Font.system(size: 13, weight: .regular)
     static let labelFont = Font.system(size: 11, weight: .semibold)
     static let metadataFont = Font.system(size: 11, weight: .regular)
@@ -3103,6 +3219,45 @@ enum AppTheme {
     static let titleSmallFont = Font.system(size: 16, weight: .semibold)
     static let titleFont = Font.system(size: 20, weight: .semibold)
     static let sidebarTitleFont = Font.system(size: 14, weight: .semibold)
+
+    private static func adaptiveColor(
+        light: (CGFloat, CGFloat, CGFloat),
+        dark: (CGFloat, CGFloat, CGFloat)
+    ) -> Color {
+        adaptiveColor(
+            light: nsColor(light.0, light.1, light.2),
+            dark: nsColor(dark.0, dark.1, dark.2)
+        )
+    }
+
+    private static func adaptiveColor(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: adaptiveNSColor(light: light, dark: dark))
+    }
+
+    private static func adaptiveNSColor(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
+            return bestMatch == .darkAqua ? dark : light
+        }
+    }
+
+    private static func fixedColor(
+        _ red: CGFloat,
+        _ green: CGFloat,
+        _ blue: CGFloat,
+        _ alpha: CGFloat = 1
+    ) -> Color {
+        Color(nsColor: nsColor(red, green, blue, alpha))
+    }
+
+    private static func nsColor(
+        _ red: CGFloat,
+        _ green: CGFloat,
+        _ blue: CGFloat,
+        _ alpha: CGFloat = 1
+    ) -> NSColor {
+        NSColor(srgbRed: red / 255, green: green / 255, blue: blue / 255, alpha: alpha)
+    }
 }
 
 private struct InnerFieldShadow: ViewModifier {
