@@ -2,6 +2,18 @@
   <img src="docs/brand/banner_light_center_2170x725.png" alt="OpenBox">
 </p>
 
+<p align="center">
+  <a href="https://github.com/jianliang00/open-box/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jianliang00/open-box?sort=semver&display_name=tag&label=release"></a>
+  <a href="https://github.com/jianliang00/open-box/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/jianliang00/open-box/total?label=downloads"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/jianliang00/open-box"></a>
+  <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&logoColor=white">
+  <img alt="Apple Silicon required" src="https://img.shields.io/badge/Apple%20Silicon-required-000000?logo=apple&logoColor=white">
+  <img alt="Swift 5.0" src="https://img.shields.io/badge/Swift-5.0-F05138?logo=swift&logoColor=white">
+  <img alt="Xcode 26+" src="https://img.shields.io/badge/Xcode-26%2B-147EFB?logo=xcode&logoColor=white">
+</p>
+
+---
+
 **A desktop app for creating and managing isolated Mac environments.**
 
 OpenBox gives Mac users a visual way to create, start, stop, inspect, and
