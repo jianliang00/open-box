@@ -264,11 +264,11 @@ struct ToolbarBreadcrumb: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(AppTheme.onSurface)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 16)
-        .frame(maxWidth: 220, alignment: .leading)
         .frame(height: 18, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .controlSize(.small)
     }
 }
@@ -300,8 +300,8 @@ struct SidebarView: View {
                     .foregroundColor(AppTheme.onSurface)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 30)
-            .padding(.bottom, 28)
+            .padding(.top, 8)
+            .padding(.bottom, 20)
 
             SidebarGroupTitle("Workspace")
 
@@ -2298,8 +2298,8 @@ struct ListColumnHeader: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 24)
-        .padding(.bottom, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
     }
 }
 
