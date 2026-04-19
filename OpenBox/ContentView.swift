@@ -310,7 +310,7 @@ struct SidebarView: View {
                     .frame(height: 1)
             }
         }
-        .background(AppTheme.sidebarSurface)
+        .background(AppTheme.sidebarSurface.ignoresSafeArea(edges: [.top, .bottom, .leading]))
     }
 
     private func count(for section: SidebarSection) -> Int? {
@@ -3179,8 +3179,8 @@ enum AppTheme {
         light: lightWindowBackgroundNSColor,
         dark: darkWindowBackgroundNSColor
     )
-    static let windowChromeSurface = adaptiveColor(light: (248, 248, 250), dark: (24, 25, 27))
-    static let sidebarSurface = adaptiveColor(light: (244, 246, 250), dark: (18, 19, 21))
+    static let windowChromeSurface = adaptiveColor(light: (248, 248, 250), dark: (29, 31, 34))
+    static let sidebarSurface = windowChromeSurface
     static let sidebarSelectedSurface = adaptiveColor(light: (230, 233, 239), dark: (39, 42, 47))
     static let contentSurface = adaptiveColor(light: (250, 251, 253), dark: (24, 25, 28))
     static let detailSurface = adaptiveColor(light: (255, 255, 255), dark: (30, 31, 34))
