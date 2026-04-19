@@ -276,10 +276,92 @@ actor ContainerSDKService {
     private static let terminalLocale = "en_US.UTF-8"
     private static let defaultPathEnvironment = "PATH=\(defaultPathEntries.joined(separator: ":"))"
     private static let runtimeSignatureFileName = "openbox-runtime-signature.json"
+    private static let internalRuntimeImageReferenceKeys = Set([
+        "vminit",
+        "vminit:latest",
+        "docker.io/library/vminit:latest",
+        ClientImage.initImageRef
+    ].map { imageReferenceKey($0) })
 
     private let imageCatalog = ImageCatalogStore()
     private var containerServicesReady = false
     private var defaultKernelPreparationTask: Task<Void, Error>?
+
+    static func imageReferenceKey(_ reference: String) -> String {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return (try? ClientImage.normalizeReference(trimmed)) ?? trimmed
+    }
+
+    static func imageReferencesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        imageReferenceKey(lhs) == imageReferenceKey(rhs)
+    }
+
+    static func isInternalRuntimeImageReference(_ reference: String) -> Bool {
+        let referenceKey = imageReferenceKey(reference)
+        return internalRuntimeImageReferenceKeys.contains(referenceKey) ||
+            referenceKey == "ghcr.io/apple/containerization/vminit" ||
+            referenceKey.hasPrefix("ghcr.io/apple/containerization/vminit:") ||
+            referenceKey.hasPrefix("ghcr.io/apple/containerization/vminit@")
+    }
+
+    static func userVisibleImageRecords(_ records: [OCIImageRecord]) -> [OCIImageRecord] {
+        var recordsByKey: [String: OCIImageRecord] = [:]
+
+        for record in records where !isInternalRuntimeImageReference(record.reference) {
+            let key = imageReferenceKey(record.reference)
+            guard !key.isEmpty else { continue }
+
+            if let existing = recordsByKey[key] {
+                recordsByKey[key] = preferredImageRecord(existing, record)
+            } else {
+                recordsByKey[key] = record
+            }
+        }
+
+        return recordsByKey.values.sorted {
+            OCIImageRecord.displayOrder(lhs: $0, rhs: $1)
+        }
+    }
+
+    private static func preferredImageRecord(_ lhs: OCIImageRecord, _ rhs: OCIImageRecord) -> OCIImageRecord {
+        let lhsRank = imageAvailabilityRank(lhs.availability)
+        let rhsRank = imageAvailabilityRank(rhs.availability)
+        if lhsRank != rhsRank {
+            return lhsRank > rhsRank ? lhs : rhs
+        }
+
+        if lhs.isBuiltIn != rhs.isBuiltIn {
+            return lhs.isBuiltIn ? lhs : rhs
+        }
+
+        if lhs.digest.isEmpty != rhs.digest.isEmpty {
+            return lhs.digest.isEmpty ? rhs : lhs
+        }
+
+        if lhs.platforms.isEmpty != rhs.platforms.isEmpty {
+            return lhs.platforms.isEmpty ? rhs : lhs
+        }
+
+        let lhsUsesNormalizedReference = lhs.reference == imageReferenceKey(lhs.reference)
+        let rhsUsesNormalizedReference = rhs.reference == imageReferenceKey(rhs.reference)
+        if lhsUsesNormalizedReference != rhsUsesNormalizedReference {
+            return lhsUsesNormalizedReference ? lhs : rhs
+        }
+
+        return OCIImageRecord.displayOrder(lhs: lhs, rhs: rhs) ? lhs : rhs
+    }
+
+    private static func imageAvailabilityRank(_ availability: OCIImageAvailability) -> Int {
+        switch availability {
+        case .downloaded:
+            return 3
+        case .pulling:
+            return 2
+        case .added:
+            return 1
+        }
+    }
 
     static func makeInteractiveTerminalEnvironment(baseEnvironment: [String], shellPath: String) -> [String] {
         var order: [String] = []
@@ -372,12 +454,15 @@ actor ContainerSDKService {
         var records: [OCIImageRecord] = []
         records.reserveCapacity(images.count + BuiltInImageCatalog.references.count)
 
-        for image in images {
+        for image in images where !Self.isInternalRuntimeImageReference(image.reference) {
             records.append(await Self.makeImageRecord(from: image, availability: .downloaded))
         }
 
-        var knownReferences = Set(records.map(\.reference))
-        for storedImage in try imageCatalog.load() where !knownReferences.contains(storedImage.reference) {
+        var knownReferences = Set(records.map { Self.imageReferenceKey($0.reference) })
+        for storedImage in try imageCatalog.load() where !Self.isInternalRuntimeImageReference(storedImage.reference) {
+            let referenceKey = Self.imageReferenceKey(storedImage.reference)
+            guard !knownReferences.contains(referenceKey) else { continue }
+
             records.append(
                 OCIImageRecord(
                     reference: storedImage.reference,
@@ -387,10 +472,13 @@ actor ContainerSDKService {
                     isBuiltIn: BuiltInImageCatalog.contains(storedImage.reference)
                 )
             )
-            knownReferences.insert(storedImage.reference)
+            knownReferences.insert(referenceKey)
         }
 
-        for reference in BuiltInImageCatalog.references where !knownReferences.contains(reference) {
+        for reference in BuiltInImageCatalog.references {
+            let referenceKey = Self.imageReferenceKey(reference)
+            guard !knownReferences.contains(referenceKey) else { continue }
+
             records.append(
                 OCIImageRecord(
                     reference: reference,
@@ -400,12 +488,10 @@ actor ContainerSDKService {
                     isBuiltIn: true
                 )
             )
-            knownReferences.insert(reference)
+            knownReferences.insert(referenceKey)
         }
 
-        return records.sorted {
-            OCIImageRecord.displayOrder(lhs: $0, rhs: $1)
-        }
+        return Self.userVisibleImageRecords(records)
     }
 
     func loadSandboxes() async throws -> SandboxInventory {
@@ -458,6 +544,7 @@ actor ContainerSDKService {
                 credentials: credentials,
                 progress: progress
             )
+            try? imageCatalog.remove(reference: image.reference)
             return await Self.makeImageRecord(from: image, availability: .downloaded)
         } catch {
             throw Self.pullImageError(error, reference: trimmed, credentialsWereProvided: credentials != nil)
@@ -1881,13 +1968,23 @@ private final class ImageCatalogStore {
         }
 
         var images = try load()
-        guard !images.contains(where: { $0.reference == trimmed }) else { return }
+        let referenceKey = ContainerSDKService.imageReferenceKey(trimmed)
+        guard !images.contains(where: {
+            ContainerSDKService.imageReferenceKey($0.reference) == referenceKey
+        }) else {
+            return
+        }
+
         images.append(StoredImageReference(reference: trimmed, addedAt: Date()))
         try save(images)
     }
 
     func remove(reference: String) throws {
-        let images = try load().filter { $0.reference != reference }
+        let referenceKey = ContainerSDKService.imageReferenceKey(reference)
+        let images = try load().filter {
+            $0.reference != reference &&
+                ContainerSDKService.imageReferenceKey($0.reference) != referenceKey
+        }
         try save(images)
     }
 

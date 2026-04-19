@@ -159,6 +159,60 @@ struct OpenBoxTests {
         ])
     }
 
+    @Test func dockerHubImageReferenceKeyCollapsesShortAndNormalizedReferences() {
+        #expect(
+            ContainerSDKService.imageReferenceKey("ubuntu:24.04")
+                == ContainerSDKService.imageReferenceKey("docker.io/library/ubuntu:24.04")
+        )
+        #expect(
+            ContainerSDKService.imageReferenceKey("docker.io/ubuntu:24.04")
+                == ContainerSDKService.imageReferenceKey("docker.io/library/ubuntu:24.04")
+        )
+    }
+
+    @Test func userVisibleImageRecordsHideInternalRuntimeImages() {
+        let records = ContainerSDKService.userVisibleImageRecords([
+            OCIImageRecord(
+                reference: "docker.io/library/vminit:latest",
+                digest: "sha256:vminit",
+                mediaType: "application/vnd.oci.image.manifest.v1+json",
+                availability: .downloaded
+            ),
+            OCIImageRecord(
+                reference: "ghcr.io/org/app:latest",
+                digest: "sha256:app",
+                mediaType: "application/vnd.oci.image.manifest.v1+json",
+                availability: .downloaded
+            )
+        ])
+
+        #expect(records.map(\.reference) == ["ghcr.io/org/app:latest"])
+        #expect(ContainerSDKService.isInternalRuntimeImageReference("vminit"))
+        #expect(ContainerSDKService.isInternalRuntimeImageReference("ghcr.io/apple/containerization/vminit:0.25.0"))
+        #expect(!ContainerSDKService.isInternalRuntimeImageReference("ghcr.io/org/vminit:latest"))
+    }
+
+    @Test func userVisibleImageRecordsPreferDownloadedNormalizedReferenceOverAddedAlias() {
+        let records = ContainerSDKService.userVisibleImageRecords([
+            OCIImageRecord(
+                reference: "ubuntu:24.04",
+                digest: "",
+                mediaType: "Not downloaded",
+                availability: .added
+            ),
+            OCIImageRecord(
+                reference: "docker.io/library/ubuntu:24.04",
+                digest: "sha256:ubuntu",
+                mediaType: "application/vnd.oci.image.manifest.v1+json",
+                availability: .downloaded
+            )
+        ])
+
+        #expect(records.count == 1)
+        #expect(records.first?.reference == "docker.io/library/ubuntu:24.04")
+        #expect(records.first?.availability == .downloaded)
+    }
+
     @Test func imagePullProgressAggregatesByteEvents() {
         var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
 

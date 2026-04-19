@@ -677,7 +677,7 @@ struct ImageListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(filteredImages) { image in
-                            let isSelected = appState.selectedImageReference == image.reference
+                            let isSelected = appState.isSelectedImage(image)
                             Button {
                                 appState.selectedImageReference = image.reference
                             } label: {

@@ -423,7 +423,10 @@ final class AppState: ObservableObject {
 
     var selectedImage: OCIImageRecord? {
         guard let selectedImageReference else { return nil }
-        return displayedImages.first { $0.reference == selectedImageReference }
+        return displayedImages.first { $0.reference == selectedImageReference } ??
+            displayedImages.first {
+                ContainerSDKService.imageReferencesMatch($0.reference, selectedImageReference)
+            }
     }
 
     var downloadedImages: [OCIImageRecord] {
@@ -431,9 +434,11 @@ final class AppState: ObservableObject {
     }
 
     var displayedImages: [OCIImageRecord] {
-        let pullingReferences = Set(imagePulls.keys)
+        let pullingReferences = Set(imagePulls.keys.map { ContainerSDKService.imageReferenceKey($0) })
         let persistentImages = images.map { image in
-            guard pullingReferences.contains(image.reference) else { return image }
+            guard pullingReferences.contains(ContainerSDKService.imageReferenceKey(image.reference)) else {
+                return image
+            }
             return OCIImageRecord(
                 reference: image.reference,
                 digest: image.digest,
@@ -444,9 +449,12 @@ final class AppState: ObservableObject {
             )
         }
 
-        let persistentReferences = Set(persistentImages.map(\.reference))
+        let persistentReferences = Set(persistentImages.map { ContainerSDKService.imageReferenceKey($0.reference) })
         let transientImages = imagePulls.values
-            .filter { !persistentReferences.contains($0.reference) }
+            .filter {
+                !persistentReferences.contains(ContainerSDKService.imageReferenceKey($0.reference)) &&
+                    !ContainerSDKService.isInternalRuntimeImageReference($0.reference)
+            }
             .map {
                 OCIImageRecord(
                     reference: $0.reference,
@@ -457,9 +465,7 @@ final class AppState: ObservableObject {
                 )
             }
 
-        return (persistentImages + transientImages).sorted {
-            OCIImageRecord.displayOrder(lhs: $0, rhs: $1)
-        }
+        return ContainerSDKService.userVisibleImageRecords(persistentImages + transientImages)
     }
 
     var selectedSandboxDetail: SandboxDetail? {
@@ -573,7 +579,9 @@ final class AppState: ObservableObject {
             }
             await self.refreshAll()
             self.selectedSidebar = .images
-            self.selectedImageReference = self.displayedImages.first(where: { $0.reference == image.reference })?.reference ?? image.reference
+            self.selectedImageReference = self.displayedImages.first {
+                ContainerSDKService.imageReferencesMatch($0.reference, image.reference)
+            }?.reference ?? image.reference
         }
     }
 
@@ -592,21 +600,28 @@ final class AppState: ObservableObject {
             try await service.addImageReference(reference: trimmed)
             await self.refreshAll()
             self.selectedSidebar = .images
-            self.selectedImageReference = trimmed
+            self.selectedImageReference = self.displayedImages.first {
+                ContainerSDKService.imageReferencesMatch($0.reference, trimmed)
+            }?.reference ?? trimmed
         }
     }
 
     func deleteImage(reference: String) {
-        let image = displayedImages.first { $0.reference == reference }
+        let image = displayedImages.first {
+            $0.reference == reference ||
+                ContainerSDKService.imageReferencesMatch($0.reference, reference)
+        }
         if image?.isBuiltIn == true && image?.isDownloaded != true {
             return
         }
         let deleteDownloadedImage = image?.isDownloaded == true
-        let activity = deleteDownloadedImage ? "Deleting \(reference)" : "Removing \(reference)"
+        let resolvedReference = image?.reference ?? reference
+        let activity = deleteDownloadedImage ? "Deleting \(resolvedReference)" : "Removing \(resolvedReference)"
 
         runMutation(activity: activity) { [service] in
-            try await service.deleteImage(reference: reference, deleteDownloadedImage: deleteDownloadedImage)
-            if self.selectedImageReference == reference {
+            try await service.deleteImage(reference: resolvedReference, deleteDownloadedImage: deleteDownloadedImage)
+            if let selectedImageReference = self.selectedImageReference,
+               ContainerSDKService.imageReferencesMatch(selectedImageReference, resolvedReference) {
                 self.selectedImageReference = nil
             }
             await self.refreshAll()
@@ -632,7 +647,9 @@ final class AppState: ObservableObject {
             )
             return
         }
-        guard images.contains(where: { $0.reference == trimmedReference && $0.isDownloaded }) else {
+        guard let selectedImage = displayedImages.first(where: {
+            $0.isDownloaded && ContainerSDKService.imageReferencesMatch($0.reference, trimmedReference)
+        }) else {
             banner = AppBanner(
                 title: "Image is not downloaded",
                 message: "New sandboxes can only be created from images that are already downloaded locally.",
@@ -644,7 +661,7 @@ final class AppState: ObservableObject {
         let normalizedDraft: SandboxDraft = {
             var draft = draft
             draft.name = trimmedName
-            draft.imageReference = trimmedReference
+            draft.imageReference = selectedImage.reference
             return draft
         }()
 
@@ -843,7 +860,20 @@ final class AppState: ObservableObject {
     }
 
     func imagePullProgress(for reference: String) -> ImagePullProgress? {
-        imagePulls[reference]
+        if let progress = imagePulls[reference] {
+            return progress
+        }
+
+        let referenceKey = ContainerSDKService.imageReferenceKey(reference)
+        return imagePulls.first {
+            ContainerSDKService.imageReferenceKey($0.key) == referenceKey
+        }?.value
+    }
+
+    func isSelectedImage(_ image: OCIImageRecord) -> Bool {
+        guard let selectedImageReference else { return false }
+        return selectedImageReference == image.reference ||
+            ContainerSDKService.imageReferencesMatch(selectedImageReference, image.reference)
     }
 
     private func runMutation(
@@ -936,7 +966,9 @@ final class AppState: ObservableObject {
         }
         let selectableImages = displayedImages
         if let selectedImageReference, !selectableImages.contains(where: { $0.reference == selectedImageReference }) {
-            self.selectedImageReference = nil
+            self.selectedImageReference = selectableImages.first {
+                ContainerSDKService.imageReferencesMatch($0.reference, selectedImageReference)
+            }?.reference
         }
         if selectedSandboxID == nil {
             selectedSandboxID = sandboxes.first?.id
@@ -953,7 +985,9 @@ final class AppState: ObservableObject {
     private func startImagePull(reference: String) {
         imagePulls[reference] = ImagePullProgress(reference: reference)
         selectedSidebar = .images
-        selectedImageReference = reference
+        selectedImageReference = displayedImages.first {
+            ContainerSDKService.imageReferencesMatch($0.reference, reference)
+        }?.reference ?? reference
     }
 
     private func updateImagePull(_ progress: ImagePullProgress) {
