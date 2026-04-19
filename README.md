@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jianliang00/open-box/actions/workflows/release.yml"><img alt="Build status" src="https://github.com/jianliang00/open-box/actions/workflows/release.yml/badge.svg"></a>
   <a href="https://github.com/jianliang00/open-box/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jianliang00/open-box?sort=semver&display_name=tag&label=release"></a>
   <a href="https://github.com/jianliang00/open-box/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/jianliang00/open-box/total?label=downloads"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/jianliang00/open-box"></a>
