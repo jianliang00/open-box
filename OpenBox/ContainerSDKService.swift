@@ -1919,9 +1919,20 @@ private actor ImagePullProgressTracker {
     }
 
     func apply(events: [ProgressEvent]) -> ImagePullProgress {
+        let timestamp = Date()
+        var downloadedByteDelta: Int64 = 0
+
         for event in events {
             guard let value = Self.int64Value(from: event.value) else { continue }
-            progress.apply(event: event.event, value: value)
+            if event.event == "add-size" {
+                downloadedByteDelta += value
+            } else {
+                progress.apply(event: event.event, value: value, at: timestamp)
+            }
+        }
+
+        if downloadedByteDelta != 0 {
+            progress.apply(event: "add-size", value: downloadedByteDelta, at: timestamp)
         }
         return progress
     }

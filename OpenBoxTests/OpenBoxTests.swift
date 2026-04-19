@@ -244,6 +244,41 @@ struct OpenBoxTests {
         #expect(progress.percentLabel == "37%")
     }
 
+    @Test func imagePullProgressReportsCurrentDownloadSpeed() throws {
+        var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
+        let firstSampleDate = Date(timeIntervalSinceReferenceDate: 0)
+        let secondSampleDate = firstSampleDate.addingTimeInterval(2)
+
+        progress.apply(event: "add-size", value: 1_024, at: firstSampleDate)
+        #expect(progress.bytesPerSecond == nil)
+
+        progress.apply(event: "add-size", value: 2_048, at: secondSampleDate)
+
+        let bytesPerSecond = try #require(progress.bytesPerSecond)
+        #expect(abs(bytesPerSecond - 1_024) < 0.0001)
+        #expect(progress.speedLabel?.hasSuffix("/s") == true)
+        #expect(progress.summary.contains("/s"))
+    }
+
+    @Test func imagePullProgressThrottlesDisplayedDownloadSpeed() throws {
+        var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
+        let firstSampleDate = Date(timeIntervalSinceReferenceDate: 0)
+
+        progress.apply(event: "add-size", value: 1_024, at: firstSampleDate)
+        progress.apply(event: "add-size", value: 1_024, at: firstSampleDate.addingTimeInterval(1))
+
+        let firstDisplayedSpeed = try #require(progress.bytesPerSecond)
+        progress.apply(event: "add-size", value: 4_096, at: firstSampleDate.addingTimeInterval(1.2))
+
+        #expect(progress.bytesPerSecond == firstDisplayedSpeed)
+
+        progress.apply(event: "add-size", value: 4_096, at: firstSampleDate.addingTimeInterval(2.2))
+
+        let refreshedSpeed = try #require(progress.bytesPerSecond)
+        #expect(refreshedSpeed > firstDisplayedSpeed)
+        #expect(refreshedSpeed < 20_480)
+    }
+
     @Test func imagePullProgressFallsBackToItemProgress() throws {
         var progress = ImagePullProgress(reference: "ghcr.io/org/image:tag")
 

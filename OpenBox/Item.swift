@@ -153,7 +153,15 @@ struct ImagePullProgress: Hashable, Sendable {
     private(set) var totalBytes: Int64
     private(set) var completedItems: Int64
     private(set) var totalItems: Int64
+    private(set) var bytesPerSecond: Double?
     private(set) var isCancelling: Bool
+    private var smoothedBytesPerSecond: Double?
+    private var lastSpeedSampleDate: Date?
+    private var lastSpeedSampleBytes: Int64
+    private var lastSpeedDisplayDate: Date?
+
+    private static let speedDisplayInterval: TimeInterval = 1
+    private static let speedSmoothingFactor = 0.25
 
     init(
         reference: String,
@@ -168,7 +176,12 @@ struct ImagePullProgress: Hashable, Sendable {
         self.totalBytes = totalBytes
         self.completedItems = completedItems
         self.totalItems = totalItems
+        self.bytesPerSecond = nil
         self.isCancelling = isCancelling
+        self.smoothedBytesPerSecond = nil
+        self.lastSpeedSampleDate = nil
+        self.lastSpeedSampleBytes = downloadedBytes
+        self.lastSpeedDisplayDate = nil
     }
 
     var fractionCompleted: Double? {
@@ -186,10 +199,10 @@ struct ImagePullProgress: Hashable, Sendable {
             return "Cancelling..."
         }
         if totalBytes > 0 {
-            return "\(percentLabel) · \(Self.byteCountString(downloadedBytes)) of \(Self.byteCountString(totalBytes))"
+            return summaryWithSpeed("\(percentLabel) · \(Self.byteCountString(downloadedBytes)) of \(Self.byteCountString(totalBytes))")
         }
         if downloadedBytes > 0 {
-            return "\(Self.byteCountString(downloadedBytes)) downloaded"
+            return summaryWithSpeed("\(Self.byteCountString(downloadedBytes)) downloaded")
         }
         if totalItems > 0 {
             return "\(completedItems) of \(totalItems) items"
@@ -202,10 +215,24 @@ struct ImagePullProgress: Hashable, Sendable {
         return "\(Int((fractionCompleted * 100).rounded(.down)))%"
     }
 
+    var speedLabel: String? {
+        guard let bytesPerSecond,
+              bytesPerSecond.isFinite,
+              bytesPerSecond >= 0 else {
+            return nil
+        }
+        return "\(Self.byteCountString(Int64(bytesPerSecond.rounded())))/s"
+    }
+
     mutating func apply(event: String, value: Int64) {
+        apply(event: event, value: value, at: Date())
+    }
+
+    mutating func apply(event: String, value: Int64, at timestamp: Date) {
         switch event {
         case "add-size":
             downloadedBytes = max(0, downloadedBytes + value)
+            updateDownloadSpeed(at: timestamp)
         case "add-total-size":
             totalBytes = max(0, totalBytes + value)
         case "add-items":
@@ -219,6 +246,50 @@ struct ImagePullProgress: Hashable, Sendable {
 
     mutating func markCancelling() {
         isCancelling = true
+    }
+
+    private func summaryWithSpeed(_ text: String) -> String {
+        guard let speedLabel else { return text }
+        return "\(text) · \(speedLabel)"
+    }
+
+    private mutating func updateDownloadSpeed(at timestamp: Date) {
+        guard downloadedBytes > lastSpeedSampleBytes else {
+            lastSpeedSampleDate = timestamp
+            lastSpeedSampleBytes = downloadedBytes
+            return
+        }
+
+        if let lastSpeedSampleDate {
+            let elapsed = timestamp.timeIntervalSince(lastSpeedSampleDate)
+            if elapsed > 0 {
+                let instantBytesPerSecond = Double(downloadedBytes - lastSpeedSampleBytes) / elapsed
+                smoothedBytesPerSecond = Self.smoothedSpeed(
+                    previous: smoothedBytesPerSecond,
+                    current: instantBytesPerSecond
+                )
+                if shouldRefreshDisplayedSpeed(at: timestamp) {
+                    bytesPerSecond = smoothedBytesPerSecond
+                    lastSpeedDisplayDate = timestamp
+                }
+            }
+        }
+
+        lastSpeedSampleDate = timestamp
+        lastSpeedSampleBytes = downloadedBytes
+    }
+
+    private func shouldRefreshDisplayedSpeed(at timestamp: Date) -> Bool {
+        guard bytesPerSecond != nil,
+              let lastSpeedDisplayDate else {
+            return true
+        }
+        return timestamp.timeIntervalSince(lastSpeedDisplayDate) >= Self.speedDisplayInterval
+    }
+
+    private static func smoothedSpeed(previous: Double?, current: Double) -> Double {
+        guard let previous else { return current }
+        return previous + speedSmoothingFactor * (current - previous)
     }
 
     private static func byteCountString(_ byteCount: Int64) -> String {
