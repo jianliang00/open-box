@@ -2,8 +2,318 @@
    Landing sections for OpenBox
    ============================================================ */
 
+const I18N = {
+  en: {
+    "nav.features": "Features",
+    "nav.terminal": "Terminal",
+    "nav.compat": "Compatibility",
+    "nav.faq": "FAQ",
+    "nav.dark": "Dark",
+    "nav.light": "Light",
+    "nav.themeToDark": "Switch to dark theme",
+    "nav.themeToLight": "Switch to light theme",
+    "nav.langSwitch": "Switch language",
+    "hero.badge": "NEW",
+    "hero.strap": "Ready-to-use macOS 26 guest images — launch a sandbox in under 90s.",
+    "hero.release": "Release notes",
+    "hero.title1": "A disposable Mac,",
+    "hero.title2": "opened in a box.",
+    "hero.body": "OpenBox is a desktop app for creating isolated macOS sandboxes on Apple Silicon. Launch a full guest desktop, run commands, and throw it away — without ever touching your real machine.",
+    "hero.download": "Download for macOS",
+    "hero.source": "View source",
+    "hero.status": "Apple Silicon · macOS 26+ · Apache 2.0",
+    "hero.use1.title": "AGENT EXPLORATION",
+    "hero.use1.body": "A safe desktop for Codex, Claude Code, and other coding agents.",
+    "hero.use2.title": "APP TESTING",
+    "hero.use2.body": "Install + launch unfamiliar apps without risking your main OS.",
+    "hero.use3.title": "CLI WORKFLOWS",
+    "hero.use3.body": "Run one-off scripts in a throwaway shell with full network isolation.",
+    "hero.use4.title": "ENV REPRO",
+    "hero.use4.body": "Pin exact macOS images; re-create sandbox state on demand.",
+    "showcase.sandbox": "Manager",
+    "showcase.desktop": "Guest desktop",
+    "showcase.term": "Embedded term",
+    "showcase.cap1": "Sandbox overview — list, status, configuration",
+    "showcase.cap2": "Launch a full macOS guest session, then close the window to leave it running",
+    "showcase.cap3": "Attach to a workload; logs and diagnostics stay scoped to the sandbox",
+    "showcase.a1": "Create, start, stop,\ninspect, remove.",
+    "showcase.a2": "Every sandbox pins\nan OCI image + digest.",
+    "showcase.a3": "Signed + notarized\nDMG via GitHub Actions.",
+    "features.eyebrow": "02 · What's in the box",
+    "features.title1": "One visual app for every",
+    "features.titleEm": "throwaway",
+    "features.title2": "Mac you'll ever need.",
+    "features.body": "Designed for the new breed of computer-using agents — and for the humans who want their main Mac left alone.",
+    "features.tag1": "ISOLATION",
+    "features.title1.card": "Full macOS guest, fully isolated",
+    "features.body1": "Keep the agent's desktop, files, credentials, and browser state separate from your everyday Mac. Close the window — the sandbox keeps running.",
+    "features.tag2": "QUICK START",
+    "features.title2.card": "Ready-to-use images",
+    "features.body2": "Pick a curated image. First sandbox launches in seconds; pull progress is visible per layer.",
+    "features.tag3": "EMBEDDED",
+    "features.title3.card": "Run commands in-app",
+    "features.body3": "Open a terminal bound to a workload. Logs, exit codes, and diagnostic paths stay attached.",
+    "features.tag4": "RECOVERABLE",
+    "features.title4.card": "Throw it away",
+    "features.body4": "Start, stop, inspect, remove. Experiments live in sandbox-scoped log paths until you delete them.",
+    "features.tag5": "APPLE SILICON",
+    "features.title5.card": "Built on Apple's container stack",
+    "features.body5": "Wraps apple/container + apple/containerization. macOS 26 runtime target, native virtualization.",
+    "features.running": "● RUNNING",
+    "flow.eyebrow": "03 · Lifecycle",
+    "flow.title": "Manage every sandbox state in real time.",
+    "flow.body": "Start, stop, inspect, and recover sandboxes from one screen, with status and diagnostics updating as the workload changes.",
+    "flow.new": "New sandbox",
+    "flow.start": "Start",
+    "flow.stop": "Stop",
+    "flow.reset": "Reset",
+    "flow.idle": "Idle",
+    "flow.creating": "Creating",
+    "flow.pulling": "Pulling",
+    "flow.running": "Running",
+    "flow.stopped": "Stopped",
+    "flow.idle.note": "No sandbox yet.",
+    "flow.creating.note": "Allocating guest, provisioning rootfs.",
+    "flow.pulling.note": "Fetching OCI layers from ghcr.io.",
+    "flow.running.note": "Desktop GUI ready; commands accepted.",
+    "flow.stopped.note": "Snapshot preserved; logs retained.",
+    "card.empty": "Empty",
+    "card.click": "Click New sandbox ↑",
+    "card.allocating": "Allocating virtualization device…",
+    "card.layer": "layer 4/6 · 148 MB / 240 MB",
+    "card.ready": "Desktop GUI ready.",
+    "card.saved": "Snapshot saved.",
+    "card.title": "OpenBox Sandbox",
+    "card.runCommand": "Run Command",
+    "card.stopSandbox": "Stop Sandbox",
+    "card.startSandbox": "Start Sandbox",
+    "card.remove": "Remove",
+    "card.desktopGui": "Desktop GUI",
+    "card.enabled": "Enabled",
+    "card.workspace": "Workspace",
+    "card.notMounted": "Not mounted",
+    "terminal.eyebrow": "04 · Embedded terminal",
+    "terminal.title1": "A shell bound to the",
+    "terminal.titleEm": "sandbox,",
+    "terminal.title2": "not your Mac.",
+    "terminal.body": "Attach an interactive terminal to any running sandbox. Workload output is captured and stays scoped — network, file system, and credentials remain inside the guest.",
+    "terminal.item1": "Per-sandbox PTY",
+    "terminal.item1.body": "session multiplexing with tmux-like resume",
+    "terminal.item2": "Log paths exposed",
+    "terminal.item2.body": "diagnostic.log · runtime.log · kernel.log",
+    "terminal.item3": "Host firewall respected",
+    "terminal.item3.body": "no inbound sockets from guest to host",
+    "terminal.item4": "Keybinds",
+    "terminal.item4.body": "⌘K command palette · ⌘⇧T new tab · ⌃C interrupt",
+    "terminal.replay": "Replay demo",
+    "terminal.pause": "Pause",
+    "terminal.resume": "Resume",
+    "compat.eyebrow": "05 · Compatibility",
+    "compat.badge": "Supported target",
+    "compat.title": "Apple Silicon Mac",
+    "compat.body": "OpenBox is validated for macOS 26 or later with macOS guest sandboxes and desktop windows.",
+    "compat.runtime": "runtime: container-runtime-macos",
+    "compat.source": "source build: Xcode 26+",
+    "compat.intel": "Intel Macs: not targeted",
+    "faq.eyebrow": "06 · FAQ",
+    "faq.title1": "Questions,",
+    "faq.title2": "honestly answered.",
+    "faq.q1": "Is this related to Apple in any way?",
+    "faq.a1": "No. OpenBox is an independent open-source project by @jianliang00. It wraps the open-source apple/container and apple/containerization packages, which Apple publishes on GitHub, but OpenBox itself isn't built, endorsed, or sanctioned by Apple.",
+    "faq.q2": "What can I run inside a sandbox?",
+    "faq.a2": "Anything that runs on macOS 26 on Apple Silicon, or any Linux image that resolves to container-runtime-linux. The focus is full macOS guest sandboxes — desktop session, keyboard, pointer, graphics.",
+    "faq.q3": "Does it work on Intel Macs?",
+    "faq.a3": "No. Apple Silicon is the current target. The underlying stack requires Apple's virtualization framework on ARM hardware.",
+    "faq.q4": "How isolated is the guest?",
+    "faq.a4": "The guest runs in its own VM with its own file system, credentials, and browser state. Host firewall rules still apply; OpenBox never opens inbound sockets from guest to host by default.",
+    "faq.q5": "Can I use it to run AI agents?",
+    "faq.a5": "Yes — that's the intended use case. Disposable macOS environments are a good place for computer-using agents to explore without touching your main setup.",
+    "faq.q6": "What's the license?",
+    "faq.a6": "Apache License 2.0. Fork it, ship it, embed it. Release DMGs are signed and notarized through GitHub Actions on macOS 26 runners.",
+    "footer.body": "A desktop app for creating and managing isolated Mac environments. Open source — Apache 2.0 — by @jianliang00 and contributors.",
+    "footer.project": "Project",
+    "footer.compat": "Compatibility",
+    "footer.license": "License",
+    "footer.releases": "Releases",
+    "footer.latest": "Latest DMG",
+    "footer.changelog": "Changelog",
+    "footer.actions": "Actions",
+    "footer.community": "Community",
+    "footer.issues": "GitHub Issues",
+    "footer.discussions": "Discussions",
+    "footer.source": "Source",
+    "footer.copy": "© 2026 OpenBox contributors · Apache 2.0",
+    "footer.note": "Not affiliated with Apple Inc. · 0.0.6-alpha"
+  },
+  zh: {
+    "nav.features": "功能",
+    "nav.terminal": "终端",
+    "nav.compat": "兼容性",
+    "nav.faq": "FAQ",
+    "nav.dark": "深色",
+    "nav.light": "浅色",
+    "nav.themeToDark": "切换到深色主题",
+    "nav.themeToLight": "切换到浅色主题",
+    "nav.langSwitch": "切换语言",
+    "hero.badge": "新",
+    "hero.strap": "可直接使用的 macOS 26 客体镜像，90 秒内启动沙盒。",
+    "hero.release": "查看发布",
+    "hero.title1": "一台可丢弃的 Mac，",
+    "hero.title2": "装进盒子里。",
+    "hero.body": "OpenBox 是一个用于创建隔离 macOS 沙盒的桌面应用。启动完整客体桌面、运行命令、随时丢弃，而不影响你的真实 Mac。",
+    "hero.download": "下载 macOS 版",
+    "hero.source": "查看源码",
+    "hero.status": "Apple Silicon · macOS 26+ · Apache 2.0",
+    "hero.use1.title": "智能体探索",
+    "hero.use1.body": "给 Codex、Claude Code 和其他编程智能体一个安全桌面。",
+    "hero.use2.title": "应用测试",
+    "hero.use2.body": "安装并启动陌生应用，不冒险污染主系统。",
+    "hero.use3.title": "CLI 工作流",
+    "hero.use3.body": "在一次性 shell 中运行脚本，并保持完整网络隔离。",
+    "hero.use4.title": "环境复现",
+    "hero.use4.body": "固定 macOS 镜像，按需重新创建沙盒状态。",
+    "showcase.sandbox": "管理器",
+    "showcase.desktop": "客体桌面",
+    "showcase.term": "内置终端",
+    "showcase.cap1": "沙盒概览：列表、状态、配置",
+    "showcase.cap2": "启动完整 macOS 客体会话，关闭窗口后沙盒仍可继续运行",
+    "showcase.cap3": "连接到工作负载，日志和诊断保持在沙盒作用域内",
+    "showcase.a1": "创建、启动、停止、\n检查、移除。",
+    "showcase.a2": "每个沙盒都固定\nOCI 镜像与 digest。",
+    "showcase.a3": "通过 GitHub Actions\n签名并公证 DMG。",
+    "features.eyebrow": "02 · 盒子里有什么",
+    "features.title1": "一个可视化应用，管理所有",
+    "features.titleEm": "一次性",
+    "features.title2": "Mac。",
+    "features.body": "为新一代会使用电脑的智能体设计，也为希望主力 Mac 保持干净的人设计。",
+    "features.tag1": "隔离",
+    "features.title1.card": "完整 macOS 客体，完全隔离",
+    "features.body1": "把智能体的桌面、文件、凭据和浏览器状态与你的日常 Mac 分离。关闭窗口后，沙盒仍可运行。",
+    "features.tag2": "快速启动",
+    "features.title2.card": "可直接使用的镜像",
+    "features.body2": "选择内置镜像，首个沙盒数秒启动，拉取进度按层可见。",
+    "features.tag3": "内置",
+    "features.title3.card": "在应用内运行命令",
+    "features.body3": "打开绑定到工作负载的终端。日志、退出码和诊断路径都会保留。",
+    "features.tag4": "可恢复",
+    "features.title4.card": "用完即丢",
+    "features.body4": "启动、停止、检查、移除。实验记录保存在沙盒日志路径中，直到你删除它。",
+    "features.tag5": "APPLE SILICON",
+    "features.title5.card": "基于 Apple container 栈",
+    "features.body5": "封装 apple/container 与 apple/containerization。面向 macOS 26 运行时和原生虚拟化。",
+    "features.running": "● 运行中",
+    "flow.eyebrow": "03 · 生命周期",
+    "flow.title": "实时管理每个沙盒状态。",
+    "flow.body": "在一个界面里启动、停止、检查和恢复沙盒，状态与诊断信息会随工作负载实时更新。",
+    "flow.new": "新建沙盒",
+    "flow.start": "启动",
+    "flow.stop": "停止",
+    "flow.reset": "重置",
+    "flow.idle": "空闲",
+    "flow.creating": "创建中",
+    "flow.pulling": "拉取中",
+    "flow.running": "运行中",
+    "flow.stopped": "已停止",
+    "flow.idle.note": "还没有沙盒。",
+    "flow.creating.note": "正在分配客体并准备 rootfs。",
+    "flow.pulling.note": "正在从 ghcr.io 拉取 OCI 层。",
+    "flow.running.note": "桌面 GUI 就绪，命令可用。",
+    "flow.stopped.note": "快照已保存，日志已保留。",
+    "card.empty": "空",
+    "card.click": "点击新建沙盒 ↑",
+    "card.allocating": "正在分配虚拟化设备…",
+    "card.layer": "第 4/6 层 · 148 MB / 240 MB",
+    "card.ready": "桌面 GUI 就绪。",
+    "card.saved": "快照已保存。",
+    "card.title": "OpenBox 沙盒",
+    "card.runCommand": "运行命令",
+    "card.stopSandbox": "停止沙盒",
+    "card.startSandbox": "启动沙盒",
+    "card.remove": "移除",
+    "card.desktopGui": "桌面 GUI",
+    "card.enabled": "已启用",
+    "card.workspace": "工作区",
+    "card.notMounted": "未挂载",
+    "terminal.eyebrow": "04 · 内置终端",
+    "terminal.title1": "shell 绑定到",
+    "terminal.titleEm": "沙盒，",
+    "terminal.title2": "不是你的 Mac。",
+    "terminal.body": "把交互式终端连接到任何运行中的沙盒。工作负载输出会被捕获并保持在客体内，包括网络、文件系统和凭据。",
+    "terminal.item1": "每沙盒 PTY",
+    "terminal.item1.body": "类似 tmux 的会话复用和恢复",
+    "terminal.item2": "暴露日志路径",
+    "terminal.item2.body": "diagnostic.log · runtime.log · kernel.log",
+    "terminal.item3": "尊重主机防火墙",
+    "terminal.item3.body": "客体不会向主机开放入站 socket",
+    "terminal.item4": "快捷键",
+    "terminal.item4.body": "⌘K 命令面板 · ⌘⇧T 新标签 · ⌃C 中断",
+    "terminal.replay": "重放演示",
+    "terminal.pause": "暂停",
+    "terminal.resume": "继续",
+    "compat.eyebrow": "05 · 兼容性",
+    "compat.badge": "支持目标",
+    "compat.title": "Apple Silicon Mac",
+    "compat.body": "OpenBox 已针对 macOS 26 或更高版本验证，支持 macOS 客体沙盒和桌面窗口。",
+    "compat.runtime": "运行时：container-runtime-macos",
+    "compat.source": "源码构建：Xcode 26+",
+    "compat.intel": "Intel Mac：暂不支持",
+    "faq.eyebrow": "06 · FAQ",
+    "faq.title1": "常见问题，",
+    "faq.title2": "直接回答。",
+    "faq.q1": "这和 Apple 有关系吗？",
+    "faq.a1": "没有。OpenBox 是 @jianliang00 发起的独立开源项目。它封装了 Apple 在 GitHub 上开源的 apple/container 和 apple/containerization，但 OpenBox 本身并非 Apple 构建、背书或授权。",
+    "faq.q2": "沙盒里可以运行什么？",
+    "faq.a2": "任何能在 Apple Silicon 的 macOS 26 上运行的内容，或能解析到 container-runtime-linux 的 Linux 镜像。重点是完整 macOS 客体沙盒，包括桌面、键盘、指针和图形。",
+    "faq.q3": "支持 Intel Mac 吗？",
+    "faq.a3": "不支持。Apple Silicon 是当前目标。底层栈依赖 Apple 在 ARM 硬件上的虚拟化框架。",
+    "faq.q4": "隔离程度如何？",
+    "faq.a4": "客体运行在自己的 VM 中，拥有独立文件系统、凭据和浏览器状态。主机防火墙规则仍然生效；OpenBox 默认不会从客体向主机开放入站 socket。",
+    "faq.q5": "可以用来运行 AI 智能体吗？",
+    "faq.a5": "可以，这正是主要使用场景。一次性 macOS 环境适合让使用电脑的智能体探索，而不触碰你的主系统。",
+    "faq.q6": "许可证是什么？",
+    "faq.a6": "Apache License 2.0。可以 fork、分发、嵌入。发布 DMG 会通过 GitHub Actions 在 macOS 26 runner 上签名并公证。",
+    "footer.body": "用于创建和管理隔离 Mac 环境的桌面应用。开源，Apache 2.0，由 @jianliang00 和贡献者维护。",
+    "footer.project": "项目",
+    "footer.compat": "兼容性",
+    "footer.license": "许可证",
+    "footer.releases": "发布",
+    "footer.latest": "最新 DMG",
+    "footer.changelog": "变更日志",
+    "footer.actions": "Actions",
+    "footer.community": "社区",
+    "footer.issues": "GitHub Issues",
+    "footer.discussions": "Discussions",
+    "footer.source": "源码",
+    "footer.copy": "© 2026 OpenBox contributors · Apache 2.0",
+    "footer.note": "与 Apple Inc. 无隶属关系 · 0.0.6-alpha"
+  }
+};
+
+const tr = key => {
+  const lang = window.__OPENBOX_LANG__ === "zh" ? "zh" : "en";
+  return I18N[lang]?.[key] ?? I18N.en[key] ?? key;
+};
+
+const lines = key => tr(key).split("\n").map((line, i) => (
+  <React.Fragment key={i}>{i > 0 && <br/>}{line}</React.Fragment>
+));
+
 /* ---------- NAV ---------- */
-const Nav = () => {
+const navControlStyle = {
+  height: 32,
+  minWidth: 52,
+  padding: "0 10px",
+  borderRadius: 7,
+  border: "1px solid var(--line)",
+  background: "var(--surface)",
+  color: "var(--ink-2)",
+  fontFamily: "var(--font-body)",
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const Nav = ({ theme = "light", lang = "en", onToggleTheme, onToggleLang }) => {
   const [scrolled, setScrolled] = React.useState(false);
   const compact = useMedia("(max-width: 760px)");
   React.useEffect(() => {
@@ -24,21 +334,39 @@ const Nav = () => {
         maxWidth: 1280, margin: "0 auto", padding: compact ? "12px 18px" : "14px 32px",
         display: "flex", alignItems: "center", gap: compact ? 12 : 28,
       }}>
-        <a href="#top" style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <Logo size={22}/>
-          <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: -0.2 }}>OpenBox</span>
+        <a href="#top" style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <Logo size={36} theme={theme}/>
+          <span style={{ fontWeight: 700, fontSize: 21, letterSpacing: 0, lineHeight: 1 }}>OpenBox</span>
           {!compact && <Pill tone="ghost" size="xs" mono>v0.0.6 · alpha</Pill>}
         </a>
         <div style={{
           display: compact ? "none" : "flex", gap: 24, marginLeft: 24,
           fontSize: 14, color: "var(--ink-3)",
         }}>
-          <a href="#features" style={{ color: "inherit" }}>Features</a>
-          <a href="#terminal" style={{ color: "inherit" }}>Terminal</a>
-          <a href="#compat" style={{ color: "inherit" }}>Compatibility</a>
-          <a href="#faq" style={{ color: "inherit" }}>FAQ</a>
+          <a href="#features" style={{ color: "inherit" }}>{tr("nav.features")}</a>
+          <a href="#terminal" style={{ color: "inherit" }}>{tr("nav.terminal")}</a>
+          <a href="#compat" style={{ color: "inherit" }}>{tr("nav.compat")}</a>
+          <a href="#faq" style={{ color: "inherit" }}>{tr("nav.faq")}</a>
         </div>
         <div style={{ flex: 1 }}/>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            aria-label={theme === "dark" ? tr("nav.themeToLight") : tr("nav.themeToDark")}
+            title={theme === "dark" ? tr("nav.themeToLight") : tr("nav.themeToDark")}
+            style={navControlStyle}>
+            {theme === "dark" ? tr("nav.light") : tr("nav.dark")}
+          </button>
+          <button
+            type="button"
+            onClick={onToggleLang}
+            aria-label={tr("nav.langSwitch")}
+            title={tr("nav.langSwitch")}
+            style={{ ...navControlStyle, minWidth: 44 }}>
+            {lang === "zh" ? "EN" : "中文"}
+          </button>
+        </div>
         <a href="https://github.com/jianliang00/open-box" aria-label="GitHub" style={{
           display: "inline-flex", alignItems: "center", justifyContent: "center",
           width: 34, height: 34,
@@ -46,28 +374,22 @@ const Nav = () => {
         }}>
           <Icon name="github" size={18}/>
         </a>
-        <Btn variant="solid" size="sm" icon="download" href="#download">{compact ? "Download" : "Download DMG"}</Btn>
       </div>
     </nav>
   );
 };
 
-/* ---------- LOGO (original, geometric — nested cubes) ---------- */
-const Logo = ({ size = 24 }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <rect x="1.5" y="1.5" width="29" height="29" rx="6.5"
-      fill="var(--ink)" stroke="var(--ink)" strokeWidth="1"/>
-    <g transform="translate(16 17)">
-      {/* outer cube outline */}
-      <path d="M 0 -9 L 8 -5 L 8 5 L 0 9 L -8 5 L -8 -5 Z"
-        stroke="#f6f5f1" strokeWidth="1.2" fill="none"/>
-      <path d="M -8 -5 L 0 -1 L 8 -5 M 0 -1 L 0 9"
-        stroke="#f6f5f1" strokeWidth="1.2" fill="none"/>
-      {/* inner accent cube */}
-      <path d="M 0 -4 L 4 -2 L 4 3 L 0 5 L -4 3 L -4 -2 Z"
-        fill="var(--accent)" opacity="0.95"/>
-    </g>
-  </svg>
+/* ---------- LOGO ---------- */
+const Logo = ({ size = 24, theme }) => (
+  <img
+    src={(theme || document.documentElement.dataset.theme) === "dark" ? "logo-web-dark.png" : "logo-web.png"}
+    alt=""
+    width={size}
+    height={size}
+    aria-hidden="true"
+    draggable="false"
+    style={{ display: "block", width: size, height: size }}
+  />
 );
 
 /* ---------- HERO ---------- */
@@ -82,10 +404,10 @@ const Hero = () => {
           fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-4)",
           flexWrap: "wrap",
         }}>
-          <Pill tone="accent" size="xs" mono>NEW</Pill>
-          <span>Ready-to-use macOS 26 guest images — launch a sandbox in under 90s.</span>
-          <a href="#download" style={{ color: "var(--ink-2)", textDecoration: "underline", textDecorationColor: "var(--line-2)", textUnderlineOffset: 3 }}>
-            Read release notes →
+          <Pill tone="accent" size="xs" mono>{tr("hero.badge")}</Pill>
+          <span>{tr("hero.strap")}</span>
+          <a href="https://github.com/jianliang00/open-box/releases/latest" style={{ color: "var(--ink-2)", textDecoration: "underline", textDecorationColor: "var(--line-2)", textUnderlineOffset: 3 }}>
+            {tr("hero.release")} →
           </a>
         </div>
 
@@ -99,9 +421,9 @@ const Hero = () => {
             margin: "0 0 28px 0",
             textWrap: "balance",
           }}>
-            A disposable Mac,<br/>
+            {tr("hero.title1")}<br/>
             <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400, letterSpacing: "-0.01em" }}>
-              opened in a box.
+              {tr("hero.title2")}
             </span>
           </h1>
 
@@ -109,19 +431,18 @@ const Hero = () => {
             fontSize: compact ? 17 : 20, lineHeight: 1.45, color: "var(--ink-3)",
             maxWidth: 680, margin: "0 0 36px 0", fontWeight: 400,
           }}>
-            OpenBox is a desktop app for creating isolated macOS sandboxes on Apple Silicon.
-            Launch a full guest desktop, run commands, and throw it away — without ever touching your real machine.
+            {tr("hero.body")}
           </p>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
             <Btn variant="accent" size="lg" icon="download" href="https://github.com/jianliang00/open-box/releases/latest">
-              Download for macOS
+              {tr("hero.download")}
             </Btn>
             <Btn variant="ghost" size="lg" icon="github" iconRight="arrow-up-right" href="https://github.com/jianliang00/open-box">
-              View source
+              {tr("hero.source")}
             </Btn>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-4)", marginLeft: compact ? 0 : 8 }}>
-              <Icon name="check" size={14}/> Apple&nbsp;Silicon · macOS&nbsp;26+ · Apache&nbsp;2.0
+              <Icon name="check" size={14}/> {tr("hero.status")}
             </div>
           </div>
 
@@ -140,10 +461,10 @@ const Hero = () => {
           borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)",
         }}>
           {[
-            ["AGENT EXPLORATION", "A safe desktop for Codex, Claude Code, and other coding agents."],
-            ["APP TESTING",       "Install + launch unfamiliar apps without risking your main OS."],
-            ["CLI WORKFLOWS",     "Run one-off scripts in a throwaway shell with full network isolation."],
-            ["ENV REPRO",         "Pin exact macOS images; re-create sandbox state on demand."],
+            [tr("hero.use1.title"), tr("hero.use1.body")],
+            [tr("hero.use2.title"), tr("hero.use2.body")],
+            [tr("hero.use3.title"), tr("hero.use3.body")],
+            [tr("hero.use4.title"), tr("hero.use4.body")],
           ].map(([k, v], i) => (
             <div key={k} style={{
               padding: "28px 24px",
@@ -184,7 +505,7 @@ const CopyLine = ({ text }) => {
       <span style={{ width: 1, height: 16, background: "var(--line)", margin: "0 4px" }}/>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--ink-4)", fontSize: 12 }}>
         <Icon name={copied ? "check" : "copy"} size={13}/>
-        {copied ? "copied" : "copy"}
+        {copied ? (window.__OPENBOX_LANG__ === "zh" ? "已复制" : "copied") : (window.__OPENBOX_LANG__ === "zh" ? "复制" : "copy")}
       </span>
     </button>
   );
@@ -192,12 +513,12 @@ const CopyLine = ({ text }) => {
 
 /* ---------- HERO SHOWCASE: tabbed window ---------- */
 const HeroShowcase = () => {
-  const [tab, setTab] = React.useState("app");
+  const [tab, setTab] = React.useState("sandbox");
   const compact = useMedia("(max-width: 760px)");
   const tabs = [
-    { id: "app",     label: "Manager",       img: "showcase/openbox-showcase-1.png", cap: "Sandbox overview — list, status, configuration" },
-    { id: "desktop", label: "Guest desktop", img: "showcase/openbox-showcase-2.png", cap: "Launch a full macOS guest session, then close the window to leave it running" },
-    { id: "term",    label: "Embedded term", img: "showcase/openbox-showcase-3.png", cap: "Attach to a workload; logs and diagnostics stay scoped to the sandbox" },
+    { id: "sandbox", label: tr("showcase.sandbox"), img: "showcase/openbox-showcase-1.png", cap: tr("showcase.cap1") },
+    { id: "desktop", label: tr("showcase.desktop"), img: "showcase/openbox-showcase-2.png", cap: tr("showcase.cap2") },
+    { id: "term",    label: tr("showcase.term"),    img: "showcase/openbox-showcase-3.png", cap: tr("showcase.cap3") },
   ];
   const active = tabs.find(t => t.id === tab);
 
@@ -209,17 +530,17 @@ const HeroShowcase = () => {
           <Annotation
             style={{ top: 60, left: -4 }}
             label="01"
-            text={<>Create, start, stop,<br/>inspect, remove.</>}
+            text={lines("showcase.a1")}
           />
           <Annotation
             style={{ top: 260, right: -8, textAlign: "right", alignItems: "flex-end" }}
             label="02"
-            text={<>Every sandbox pins<br/>an OCI image + digest.</>}
+            text={lines("showcase.a2")}
           />
           <Annotation
             style={{ bottom: -12, left: "30%" }}
             label="03"
-            text={<>Signed + notarized<br/>DMG via GitHub Actions.</>}
+            text={lines("showcase.a3")}
           />
         </>
       )}
@@ -247,12 +568,18 @@ const HeroShowcase = () => {
         ))}
       </div>
 
-      <MacWindow title="OpenBox" style={{ maxWidth: 1180 }}>
+      <div style={{
+        maxWidth: 1180,
+        overflow: "hidden",
+        border: "1px solid var(--line)",
+        borderRadius: 12,
+        boxShadow: "0 1px 1px rgba(0,0,0,0.02), 0 10px 30px rgba(0,0,0,0.08), 0 40px 80px rgba(0,0,0,0.08)",
+      }}>
         <div style={{ position: "relative", aspectRatio: "2940/1716", background: "#f5f5f7" }}>
           <img src={active.img} alt={active.label}
             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
         </div>
-      </MacWindow>
+      </div>
 
       <div style={{
         marginTop: 14, display: "flex", justifyContent: "space-between", gap: 8,
@@ -290,39 +617,34 @@ const Features = () => {
   const medium = useMedia("(max-width: 1020px)");
   const items = [
     {
-      icon: "box", tag: "ISOLATION",
-      title: "Full macOS guest, fully isolated",
-      body: "Keep the agent's desktop, files, credentials, and browser state separate from your everyday Mac. Close the window — the sandbox keeps running.",
+      icon: "box", tag: tr("features.tag1"),
+      title: tr("features.title1.card"),
+      body: tr("features.body1"),
       big: true,
     },
     {
-      icon: "bolt", tag: "QUICK START",
-      title: "Ready-to-use images",
-      body: "Pick a curated image. First sandbox launches in seconds; pull progress is visible per layer.",
+      icon: "bolt", tag: tr("features.tag2"),
+      title: tr("features.title2.card"),
+      body: tr("features.body2"),
     },
     {
-      icon: "terminal", tag: "EMBEDDED",
-      title: "Run commands in-app",
-      body: "Open a terminal bound to a workload. Logs, exit codes, and diagnostic paths stay attached.",
+      icon: "terminal", tag: tr("features.tag3"),
+      title: tr("features.title3.card"),
+      body: tr("features.body3"),
     },
     {
-      icon: "layers", tag: "RECOVERABLE",
-      title: "Throw it away",
-      body: "Start, stop, inspect, remove. Experiments live in sandbox-scoped log paths until you delete them.",
+      icon: "layers", tag: tr("features.tag4"),
+      title: tr("features.title4.card"),
+      body: tr("features.body4"),
     },
     {
-      icon: "chip", tag: "APPLE SILICON",
-      title: "Built on Apple's container stack",
-      body: "Wraps apple/container + apple/containerization. macOS 26 runtime target, native virtualization.",
-    },
-    {
-      icon: "shield", tag: "SIGNED",
-      title: "Signed & notarized releases",
-      body: "Every semver tag builds a notarized DMG on macOS 26 via GitHub Actions. No surprise binaries.",
+      icon: "chip", tag: tr("features.tag5"),
+      title: tr("features.title5.card"),
+      body: tr("features.body5"),
     },
   ];
   return (
-    <Section id="features" eyebrow="02 · What's in the box">
+    <Section id="features" eyebrow={tr("features.eyebrow")}>
       <div style={{
         display: "flex", justifyContent: "space-between",
         alignItems: "flex-end", gap: 24, marginBottom: 48, flexWrap: "wrap",
@@ -332,14 +654,14 @@ const Features = () => {
           letterSpacing: "-0.03em", lineHeight: 1.0, margin: 0,
           maxWidth: 720, textWrap: "balance",
         }}>
-          One visual app for every{" "}
+          {tr("features.title1")}{" "}
           <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400 }}>
-            throwaway
+            {tr("features.titleEm")}
           </span>{" "}
-          Mac you'll ever need.
+          {tr("features.title2")}
         </h2>
         <p style={{ color: "var(--ink-3)", fontSize: 15, maxWidth: 360, margin: 0, lineHeight: 1.5 }}>
-          Designed for the new breed of computer-using agents — and for the humans who want their main Mac left alone.
+          {tr("features.body")}
         </p>
       </div>
 
@@ -368,9 +690,8 @@ const FeatureCell = ({ icon, tag, title, body, big, index }) => {
     { gridColumn: "span 3", gridRow: "span 2" }, // big left
     { gridColumn: "span 3" },
     { gridColumn: "span 3" },
-    { gridColumn: "span 2" },
-    { gridColumn: "span 2" },
-    { gridColumn: "span 2" },
+    { gridColumn: "span 3" },
+    { gridColumn: "span 3" },
   ];
   const layout = compact
     ? { gridColumn: "span 1", gridRow: "span 1" }
@@ -437,7 +758,7 @@ const FeatureIllustration = () => (
       </div>
     </div>
     <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-      <Pill tone="good" size="xs">● RUNNING</Pill>
+      <Pill tone="good" size="xs">{tr("features.running")}</Pill>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--ink-4)" }}>
         up 14m · 4 vCPU / 8GB
       </span>
@@ -450,11 +771,11 @@ const Flow = () => {
   const [state, setState] = React.useState("idle"); // idle -> creating -> pulling -> running -> stopped
   const compact = useMedia("(max-width: 760px)");
   const states = [
-    { id: "idle",     label: "Idle",      color: "var(--ink-4)",   note: "No sandbox yet." },
-    { id: "creating", label: "Creating",  color: "var(--warn)",    note: "Allocating guest, provisioning rootfs." },
-    { id: "pulling",  label: "Pulling",   color: "var(--accent)",  note: "Fetching OCI layers from ghcr.io." },
-    { id: "running",  label: "Running",   color: "var(--good)",    note: "Desktop GUI ready; commands accepted." },
-    { id: "stopped",  label: "Stopped",   color: "var(--ink-3)",   note: "Snapshot preserved; logs retained." },
+    { id: "idle",     label: tr("flow.idle"),      color: "var(--ink-4)",   note: tr("flow.idle.note") },
+    { id: "creating", label: tr("flow.creating"),  color: "var(--warn)",    note: tr("flow.creating.note") },
+    { id: "pulling",  label: tr("flow.pulling"),   color: "var(--accent)",  note: tr("flow.pulling.note") },
+    { id: "running",  label: tr("flow.running"),   color: "var(--good)",    note: tr("flow.running.note") },
+    { id: "stopped",  label: tr("flow.stopped"),   color: "var(--ink-3)",   note: tr("flow.stopped.note") },
   ];
   const idx = states.findIndex(s => s.id === state);
 
@@ -468,7 +789,7 @@ const Flow = () => {
   }, [state]);
 
   return (
-    <Section id="lifecycle" eyebrow="03 · Lifecycle">
+    <Section id="lifecycle" eyebrow={tr("flow.eyebrow")}>
       <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1.1fr 1fr", gap: compact ? 32 : 48, alignItems: "center" }}>
         <div>
           <h2 style={{
@@ -476,19 +797,19 @@ const Flow = () => {
             letterSpacing: "-0.025em", lineHeight: 1.05, margin: "0 0 20px 0",
             textWrap: "balance",
           }}>
-            From click to running desktop in five states.
+            {tr("flow.title")}
           </h2>
           <p style={{ color: "var(--ink-3)", fontSize: 16, lineHeight: 1.55, margin: "0 0 28px 0", maxWidth: 480 }}>
-            OpenBox exposes the sandbox state machine as first-class UI. Every transition is visible, recoverable, and annotated with diagnostics.
+            {tr("flow.body")}
           </p>
 
           {/* controls */}
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-            <Btn variant="accent" size="sm" icon="plus" onClick={() => setState("creating")}>New sandbox</Btn>
+            <Btn variant="accent" size="sm" icon="plus" onClick={() => setState("creating")}>{tr("flow.new")}</Btn>
             <Btn variant="ghost" size="sm" icon={state === "running" ? "stop" : "play"} onClick={() => setState(state === "running" ? "stopped" : "running")} disabled={state === "creating" || state === "pulling"}>
-              {state === "running" ? "Stop" : "Start"}
+              {state === "running" ? tr("flow.stop") : tr("flow.start")}
             </Btn>
-            <Btn variant="ghost" size="sm" onClick={() => setState("idle")}>Reset</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setState("idle")}>{tr("flow.reset")}</Btn>
           </div>
 
           {/* state list */}
@@ -531,17 +852,17 @@ const Flow = () => {
 const SandboxCard = ({ state }) => {
   const compact = useMedia("(max-width: 760px)");
   const map = {
-    idle:     { pill: ["Empty", "var(--ink-3)", "var(--bg-2)"],  progress: 0,   body: "Click New sandbox ↑" },
-    creating: { pill: ["Creating", "var(--warn)", "oklch(0.95 0.04 60)"], progress: 15, body: "Allocating virtualization device…" },
-    pulling:  { pill: ["Pulling", "var(--accent)", "var(--accent-bg)"], progress: 62, body: "layer 4/6 · 148 MB / 240 MB" },
-    running:  { pill: ["Running", "var(--good)", "var(--good-bg)"], progress: 100, body: "Desktop GUI ready." },
-    stopped:  { pill: ["Stopped", "var(--ink-3)", "var(--bg-2)"],  progress: 0,   body: "Snapshot saved." },
+    idle:     { pill: [tr("card.empty"), "var(--ink-3)", "var(--bg-2)"],  progress: 0,   body: tr("card.click") },
+    creating: { pill: [tr("flow.creating"), "var(--warn)", "oklch(0.95 0.04 60)"], progress: 15, body: tr("card.allocating") },
+    pulling:  { pill: [tr("flow.pulling"), "var(--accent)", "var(--accent-bg)"], progress: 62, body: tr("card.layer") },
+    running:  { pill: [tr("flow.running"), "var(--good)", "var(--good-bg)"], progress: 100, body: tr("card.ready") },
+    stopped:  { pill: [tr("flow.stopped"), "var(--ink-3)", "var(--bg-2)"],  progress: 0,   body: tr("card.saved") },
   };
   const m = map[state];
 
   return (
     <MacWindow title="OpenBox — openbox-sandbox-376036f9" style={{ borderRadius: 12 }}>
-      <div style={{ padding: 24, background: "#fdfcf9" }}>
+      <div style={{ padding: 24, background: "var(--surface)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <div style={{
             width: 44, height: 44, borderRadius: 10,
@@ -551,7 +872,7 @@ const SandboxCard = ({ state }) => {
             <Icon name="box" size={20}/>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>OpenBox Sandbox</div>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>{tr("card.title")}</div>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--ink-4)" }}>
               openbox-openbox-sandbox-376036f9
             </div>
@@ -594,8 +915,8 @@ const SandboxCard = ({ state }) => {
             ["Runtime", "container-runtime-macos"],
             ["Platform", "darwin/arm64"],
             ["Resources", "4 vCPU · 8GB RAM"],
-            ["Desktop GUI", state === "running" ? "Enabled ✓" : "Enabled"],
-            ["Workspace", "Not mounted"],
+            [tr("card.desktopGui"), state === "running" ? `${tr("card.enabled")} ✓` : tr("card.enabled")],
+            [tr("card.workspace"), tr("card.notMounted")],
           ].map(([k, v, mono], i) => (
             <div key={k} style={{
               padding: "10px 14px",
@@ -618,12 +939,12 @@ const SandboxCard = ({ state }) => {
 
         {/* actions */}
         <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-          <Btn variant="soft" size="sm" icon="terminal" disabled={state !== "running"}>Run Command</Btn>
+          <Btn variant="soft" size="sm" icon="terminal" disabled={state !== "running"}>{tr("card.runCommand")}</Btn>
           <Btn variant={state === "running" ? "soft" : "accent"} size="sm" icon={state === "running" ? "stop" : "play"}>
-            {state === "running" ? "Stop Sandbox" : "Start Sandbox"}
+            {state === "running" ? tr("card.stopSandbox") : tr("card.startSandbox")}
           </Btn>
           <div style={{ flex: 1 }}/>
-          <Btn variant="ghost" size="sm">Remove</Btn>
+          <Btn variant="ghost" size="sm">{tr("card.remove")}</Btn>
         </div>
       </div>
     </MacWindow>
@@ -670,27 +991,26 @@ const TerminalDemo = () => {
   });
 
   return (
-    <Section id="terminal" eyebrow="04 · Embedded terminal">
+    <Section id="terminal" eyebrow={tr("terminal.eyebrow")}>
       <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1.3fr", gap: compact ? 32 : 48, alignItems: "center" }}>
         <div>
           <h2 style={{
             fontSize: "clamp(36px, 4.5vw, 56px)", fontWeight: 500,
             letterSpacing: "-0.025em", lineHeight: 1.05, margin: "0 0 20px 0",
           }}>
-            A shell bound to the{" "}
-            <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400 }}>sandbox,</span>{" "}
-            not your Mac.
+            {tr("terminal.title1")}{" "}
+            <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400 }}>{tr("terminal.titleEm")}</span>{" "}
+            {tr("terminal.title2")}
           </h2>
           <p style={{ color: "var(--ink-3)", fontSize: 16, lineHeight: 1.55, margin: "0 0 24px 0", maxWidth: 480 }}>
-            Attach an interactive terminal to any running sandbox. Workload output is captured and
-            stays scoped — network, file system, and credentials remain inside the guest.
+            {tr("terminal.body")}
           </p>
           <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
             {[
-              ["Per-sandbox PTY","session multiplexing with tmux-like resume"],
-              ["Log paths exposed","diagnostic.log · runtime.log · kernel.log"],
-              ["Host firewall respected","no inbound sockets from guest to host"],
-              ["Keybinds","⌘K command palette · ⌘⇧T new tab · ⌃C interrupt"],
+              [tr("terminal.item1"), tr("terminal.item1.body")],
+              [tr("terminal.item2"), tr("terminal.item2.body")],
+              [tr("terminal.item3"), tr("terminal.item3.body")],
+              [tr("terminal.item4"), tr("terminal.item4.body")],
             ].map(([k,v]) => (
               <li key={k} style={{ display: "flex", alignItems: "baseline", gap: 12, fontSize: 14, color: "var(--ink-2)" }}>
                 <Icon name="check" size={14} style={{ color: "var(--accent)", flexShrink: 0 }}/>
@@ -699,9 +1019,9 @@ const TerminalDemo = () => {
             ))}
           </ul>
           <div style={{ marginTop: 28, display: "flex", gap: 8 }}>
-            <Btn variant="soft" size="sm" onClick={restart} icon="play">Replay demo</Btn>
+            <Btn variant="soft" size="sm" onClick={restart} icon="play">{tr("terminal.replay")}</Btn>
             <Btn variant="ghost" size="sm" onClick={() => setRunning(r => !r)} icon={running ? "stop" : "play"}>
-              {running ? "Pause" : "Resume"}
+              {running ? tr("terminal.pause") : tr("terminal.resume")}
             </Btn>
           </div>
         </div>
@@ -740,179 +1060,68 @@ const TerminalDemo = () => {
 /* ---------- COMPATIBILITY ---------- */
 const Compat = () => {
   const compact = useMedia("(max-width: 760px)");
-  const rows = [
-    ["Hardware",             "Apple Silicon Mac",                     "good"],
-    ["Runtime OS",           "macOS 26 or later",                     "good"],
-    ["Source build",         "Xcode 26 or later",                     "good"],
-    ["Linux sandboxes",      "OCI · container-runtime-linux",         "good"],
-    ["macOS guest sandboxes","container-runtime-macos images",        "good"],
-    ["Guest desktop (macOS)","Enable at sandbox creation",            "good"],
-    ["Guest desktop (Linux)","Future area",                           "warn"],
-    ["Intel Macs",           "Not the current target",                "muted"],
-  ];
   return (
-    <Section id="compat" eyebrow="05 · Compatibility" style={{ paddingTop: 80 }}>
-      <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 2fr", gap: compact ? 28 : 48 }}>
-        <div>
-          <h2 style={{
-            fontSize: "clamp(32px, 4vw, 48px)", fontWeight: 500,
-            letterSpacing: "-0.02em", lineHeight: 1.05, margin: "0 0 16px 0",
-          }}>
-            Built on the supported stack.
-          </h2>
-          <p style={{ color: "var(--ink-3)", fontSize: 15, lineHeight: 1.55, margin: "0 0 20px 0" }}>
-            OpenBox follows the runtime requirements of Apple's container stack. Release validation
-            treats <b>macOS 26 on Apple Silicon</b> as the supported target.
-          </p>
-          <div style={{
-            padding: 16, background: "var(--bg-2)",
-            border: "1px solid var(--line)", borderRadius: 10,
-            fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.6,
-          }}>
-            <div style={{ color: "var(--ink-4)", marginBottom: 6 }}>// dependency notes</div>
-            pinned: jianliang00/container<br/>
-            upstream: apple/container<br/>
-            lower-level: apple/containerization
-          </div>
-        </div>
-
-        <div style={{
-          border: "1px solid var(--line)", borderRadius: 14,
-          overflow: "hidden", background: "var(--surface)",
-        }}>
-          {rows.map(([k, v, tone], i) => (
-            <div key={k} style={{
-              display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1.5fr auto",
-              padding: "16px 20px", gap: compact ? 8 : 16,
-              borderTop: i === 0 ? "none" : "1px solid var(--line)",
-              alignItems: "center",
-              background: i % 2 === 1 ? "var(--bg)" : "transparent",
-            }}>
-              <span style={{ fontSize: 14, fontWeight: 500 }}>{k}</span>
-              <span style={{ fontSize: 13.5, color: "var(--ink-3)", fontFamily: "var(--font-mono)" }}>{v}</span>
-              <Pill tone={tone === "good" ? "good" : tone === "warn" ? "default" : "ghost"} size="xs">
-                {tone === "good" ? "Supported" : tone === "warn" ? "Future" : "Not targeted"}
-              </Pill>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Section>
-  );
-};
-
-/* ---------- RELEASE / CTA ---------- */
-const Release = () => {
-  const compact = useMedia("(max-width: 760px)");
-  return (
-    <Section id="download" eyebrow="06 · Download" style={{ paddingTop: 60 }}>
+    <Section id="compat" eyebrow={tr("compat.eyebrow")} style={{ paddingTop: 80, paddingBottom: 72 }}>
       <div style={{
-        position: "relative",
-        background: "var(--ink)", color: "#f6f5f1",
-        borderRadius: 20, padding: compact ? "42px 24px" : "72px 56px",
-        overflow: "hidden",
+        display: "flex",
+        flexDirection: compact ? "column" : "row",
+        alignItems: compact ? "flex-start" : "center",
+        justifyContent: "space-between",
+        gap: compact ? 22 : 40,
+        padding: compact ? "24px 22px" : "30px 34px",
+        background: "var(--surface)",
+        border: "1px solid var(--line)",
+        borderRadius: 12,
+        boxShadow: "0 16px 40px rgba(0,0,0,0.05)",
       }}>
-        {/* bg pattern */}
+        <div>
+          <Pill tone="good" size="xs">{tr("compat.badge")}</Pill>
+          <h2 style={{
+            fontSize: "clamp(28px, 3.4vw, 42px)", fontWeight: 600,
+            letterSpacing: 0, lineHeight: 1.08, margin: "14px 0 10px 0",
+          }}>
+            {tr("compat.title")}
+          </h2>
+          <p style={{ color: "var(--ink-3)", fontSize: 15, lineHeight: 1.55, margin: 0, maxWidth: 620 }}>
+            {tr("compat.body")}
+          </p>
+        </div>
         <div style={{
-          position: "absolute", inset: 0,
-          backgroundImage: "radial-gradient(circle at 85% 20%, color-mix(in oklch, var(--accent) 40%, transparent), transparent 50%)",
-          opacity: 0.7, pointerEvents: "none",
-        }}/>
-        <div style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? "1fr" : "1.3fr 1fr", gap: compact ? 28 : 48, alignItems: "center" }}>
-          <div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 1.5, color: "#8a857a", marginBottom: 20 }}>
-              LATEST RELEASE
-            </div>
-            <h2 style={{
-              fontSize: "clamp(44px, 5.5vw, 72px)", fontWeight: 500,
-              letterSpacing: "-0.03em", lineHeight: 1.0, margin: "0 0 24px 0",
-              textWrap: "balance",
-            }}>
-              Ready for your first{" "}
-              <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400, color: "color-mix(in oklch, var(--accent) 70%, white)" }}>
-                throwaway Mac.
-              </span>
-            </h2>
-            <p style={{ color: "#b8b3a7", fontSize: 17, lineHeight: 1.5, maxWidth: 540, margin: "0 0 36px 0" }}>
-              Signed and notarized, straight from the GitHub Actions pipeline. Apache 2.0.
-              Early alpha — expect rough edges and please file them.
-            </p>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <Btn variant="accent" size="lg" icon="download" href="https://github.com/jianliang00/open-box/releases/latest">
-                OpenBox-0.0.6.dmg
-              </Btn>
-              <Btn variant="ghost" size="lg" icon="github" href="https://github.com/jianliang00/open-box" style={{ borderColor: "#3a3731", color: "#f6f5f1" }}>
-                Build from source
-              </Btn>
-            </div>
-            <div style={{ marginTop: 24, display: "flex", gap: compact ? 10 : 20, flexWrap: "wrap", fontSize: 12.5, color: "#8a857a", fontFamily: "var(--font-mono)" }}>
-              <span>sha256: f657…e4ea</span>
-              <span>·</span>
-              <span>macOS 26+</span>
-              <span>·</span>
-              <span>arm64</span>
-              <span>·</span>
-              <span>154.5 MB</span>
-            </div>
-          </div>
-          <ReleaseBadge/>
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          lineHeight: 1.8,
+          color: "var(--ink-3)",
+          minWidth: compact ? "auto" : 280,
+        }}>
+          {tr("compat.runtime")}<br/>
+          {tr("compat.source")}<br/>
+          {tr("compat.intel")}
         </div>
       </div>
     </Section>
   );
 };
-
-const ReleaseBadge = () => (
-  <div style={{
-    border: "1px solid #3a3731",
-    borderRadius: 14,
-    padding: 24,
-    background: "color-mix(in oklch, #1c1b18 70%, transparent)",
-  }}>
-    <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#8a857a", letterSpacing: 1.2, marginBottom: 14 }}>
-      RELEASE NOTES · 0.0.6
-    </div>
-    {[
-      ["+", "Added built-in macOS base image"],
-      ["+", "Signed and notarized DMG release asset"],
-      ["+", "Showcase screenshots refreshed"],
-      ["·", "Full changelog links 0.0.5...0.0.6"],
-      ["·", "Early alpha release for Apple Silicon Macs"],
-    ].map(([m, t], i) => (
-      <div key={i} style={{ display: "flex", gap: 10, padding: "7px 0", fontSize: 13, color: "#d0ccbf", borderBottom: i < 4 ? "1px solid #2c2a26" : "none" }}>
-        <span style={{ fontFamily: "var(--font-mono)", width: 14, color: m === "+" ? "color-mix(in oklch, var(--accent) 70%, white)" : "#6b675e" }}>{m}</span>
-        <span>{t}</span>
-      </div>
-    ))}
-  </div>
-);
 
 /* ---------- FAQ ---------- */
 const FAQ = () => {
   const compact = useMedia("(max-width: 760px)");
   const items = [
-    ["Is this related to Apple in any way?",
-     "No. OpenBox is an independent open-source project by @jianliang00. It wraps the open-source apple/container and apple/containerization packages, which Apple publishes on GitHub, but OpenBox itself isn't built, endorsed, or sanctioned by Apple."],
-    ["What can I run inside a sandbox?",
-     "Anything that runs on macOS 26 on Apple Silicon, or any Linux image that resolves to container-runtime-linux. The focus is full macOS guest sandboxes — desktop session, keyboard, pointer, graphics."],
-    ["Does it work on Intel Macs?",
-     "No. Apple Silicon is the current target. The underlying stack requires Apple's virtualization framework on ARM hardware."],
-    ["How isolated is the guest?",
-     "The guest runs in its own VM with its own file system, credentials, and browser state. Host firewall rules still apply; OpenBox never opens inbound sockets from guest to host by default."],
-    ["Can I use it to run AI agents?",
-     "Yes — that's the intended use case. Disposable macOS environments are a good place for computer-using agents to explore without touching your main setup."],
-    ["What's the license?",
-     "Apache License 2.0. Fork it, ship it, embed it. Release DMGs are signed and notarized through GitHub Actions on macOS 26 runners."],
+    [tr("faq.q1"), tr("faq.a1")],
+    [tr("faq.q2"), tr("faq.a2")],
+    [tr("faq.q3"), tr("faq.a3")],
+    [tr("faq.q4"), tr("faq.a4")],
+    [tr("faq.q5"), tr("faq.a5")],
+    [tr("faq.q6"), tr("faq.a6")],
   ];
   const [open, setOpen] = React.useState(0);
   return (
-    <Section id="faq" eyebrow="07 · FAQ" style={{ paddingTop: 60 }}>
+    <Section id="faq" eyebrow={tr("faq.eyebrow")} style={{ paddingTop: 60 }}>
       <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 2fr", gap: compact ? 28 : 48 }}>
         <h2 style={{
           fontSize: "clamp(36px, 4.5vw, 56px)", fontWeight: 500,
           letterSpacing: "-0.025em", lineHeight: 1.0, margin: 0,
         }}>
-          Questions, <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400 }}>honestly answered.</span>
+          {tr("faq.title1")} <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400 }}>{tr("faq.title2")}</span>
         </h2>
         <div style={{ borderTop: "1px solid var(--line)" }}>
           {items.map(([q, a], i) => (
@@ -958,20 +1167,20 @@ const FAQ = () => {
 const Footer = () => {
   const compact = useMedia("(max-width: 760px)");
   const groups = [
-    ["Project", [
+    [tr("footer.project"), [
       ["README", "https://github.com/jianliang00/open-box#readme"],
-      ["Compatibility", "COMPATIBILITY.md"],
-      ["License", "https://github.com/jianliang00/open-box/blob/main/LICENSE"],
+      [tr("footer.compat"), "COMPATIBILITY.md"],
+      [tr("footer.license"), "https://github.com/jianliang00/open-box/blob/main/LICENSE"],
     ]],
-    ["Releases", [
-      ["Latest DMG", "https://github.com/jianliang00/open-box/releases/latest"],
-      ["Changelog", "https://github.com/jianliang00/open-box/releases/tag/0.0.6"],
-      ["Actions", "https://github.com/jianliang00/open-box/actions"],
+    [tr("footer.releases"), [
+      [tr("footer.latest"), "https://github.com/jianliang00/open-box/releases/latest"],
+      [tr("footer.changelog"), "https://github.com/jianliang00/open-box/releases/tag/0.0.6"],
+      [tr("footer.actions"), "https://github.com/jianliang00/open-box/actions"],
     ]],
-    ["Community", [
-      ["GitHub Issues", "https://github.com/jianliang00/open-box/issues"],
-      ["Discussions", "https://github.com/jianliang00/open-box/discussions"],
-      ["Source", "https://github.com/jianliang00/open-box"],
+    [tr("footer.community"), [
+      [tr("footer.issues"), "https://github.com/jianliang00/open-box/issues"],
+      [tr("footer.discussions"), "https://github.com/jianliang00/open-box/discussions"],
+      [tr("footer.source"), "https://github.com/jianliang00/open-box"],
     ]],
   ];
 
@@ -983,13 +1192,12 @@ const Footer = () => {
     }}>
       <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "2fr 1fr 1fr 1fr", gap: compact ? 28 : 48, marginBottom: 48 }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <Logo size={22}/>
-            <span style={{ fontWeight: 600, fontSize: 15 }}>OpenBox</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+            <Logo size={32}/>
+            <span style={{ fontWeight: 700, fontSize: 20, lineHeight: 1 }}>OpenBox</span>
           </div>
           <p style={{ color: "var(--ink-3)", fontSize: 13.5, lineHeight: 1.55, maxWidth: 340, margin: 0 }}>
-            A desktop app for creating and managing isolated Mac environments.
-            Open source — Apache 2.0 — by @jianliang00 and contributors.
+            {tr("footer.body")}
           </p>
         </div>
         {groups.map(([title, links]) => (
@@ -1009,11 +1217,11 @@ const Footer = () => {
         flexDirection: compact ? "column" : "row",
         fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--ink-4)",
       }}>
-        <span>© 2026 OpenBox contributors · Apache 2.0</span>
-        <span>Not affiliated with Apple Inc. · 0.0.6-alpha</span>
+        <span>{tr("footer.copy")}</span>
+        <span>{tr("footer.note")}</span>
       </div>
     </footer>
   );
 };
 
-Object.assign(window, { Nav, Hero, Features, Flow, TerminalDemo, Compat, Release, FAQ, Footer, Logo });
+Object.assign(window, { Nav, Hero, Features, Flow, TerminalDemo, Compat, FAQ, Footer, Logo });

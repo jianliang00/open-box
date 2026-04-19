@@ -7,6 +7,12 @@
 <meta name="description" content="OpenBox creates isolated macOS sandboxes on Apple Silicon, with guest desktop sessions, command execution, and disposable environments for agents and app tests." />
 <meta name="keywords" content="OpenBox, macOS sandbox, Mac sandbox app, isolated Mac environments, Apple Silicon, macOS guest, container runtime, disposable development environment, AI agent sandbox, app testing sandbox, SwiftUI Mac app, desktop isolation" />
 <meta name="application-name" content="OpenBox" />
+<meta name="theme-color" content="#f6f5f1" />
+<link rel="icon" href="favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+<link rel="manifest" href="site.webmanifest" />
 <link rel="canonical" href="https://jianliang00.github.io/open-box/" />
 <meta property="og:title" content="OpenBox — Isolated Mac sandboxes, one visual app" />
 <meta property="og:description" content="Create, run, inspect, and remove isolated macOS sandboxes from one desktop app." />
@@ -30,8 +36,26 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
 
+<script>
+  (() => {
+    try {
+      const storedTheme = localStorage.getItem("openbox-theme");
+      const theme = storedTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      const storedLang = localStorage.getItem("openbox-lang");
+      const lang = storedLang || (navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+      window.__OPENBOX_LANG__ = lang;
+    } catch (_) {
+      document.documentElement.dataset.theme = "light";
+      window.__OPENBOX_LANG__ = "en";
+    }
+  })();
+</script>
+
 <style>
   :root {
+    color-scheme: light;
     --bg:        #f6f5f1;
     --bg-2:      #efede6;
     --surface:   #ffffff;
@@ -47,13 +71,40 @@
     --good:      oklch(0.60 0.14 150);
     --good-bg:   oklch(0.95 0.04 150);
     --warn:      oklch(0.65 0.15 60);
+    --wash:      radial-gradient(circle at 50% 0%, rgba(0,0,0,0.02), transparent 60%);
+    --wash-blend:multiply;
 
     --font-body:  'Supreme', ui-sans-serif, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     --font-mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     --font-serif: 'Gambarino', 'Fraunces', 'Times New Roman', serif;
   }
 
-  html, body { background: var(--bg); color: var(--ink); }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:        #11120f;
+    --bg-2:      #191a16;
+    --surface:   #20211d;
+    --ink:       #f4f1e8;
+    --ink-2:     #ded9ce;
+    --ink-3:     #b8b0a2;
+    --ink-4:     #878073;
+    --line:      #33342d;
+    --line-2:    #46473e;
+    --accent:    oklch(0.70 0.16 240);
+    --accent-ink:#07111f;
+    --accent-bg: oklch(0.24 0.05 240);
+    --good:      oklch(0.72 0.15 150);
+    --good-bg:   oklch(0.25 0.05 150);
+    --warn:      oklch(0.76 0.15 60);
+    --wash:      radial-gradient(circle at 50% 0%, rgba(75,115,170,0.14), transparent 62%);
+    --wash-blend:screen;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    transition: background 180ms ease, color 180ms ease;
+  }
   body {
     margin: 0;
     font-family: var(--font-body);
@@ -68,18 +119,17 @@
   button { font-family: inherit; }
 
   ::selection { background: var(--accent); color: #fff; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
-  /* grid overlay — very subtle paper feel */
+  /* subtle page wash */
   body::before {
     content:"";
     position: fixed; inset: 0;
-    background:
-      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 48px,
-      radial-gradient(circle at 50% 0%, rgba(0,0,0,0.02), transparent 60%);
+    background: var(--wash);
     opacity: 0.35;
     pointer-events: none;
     z-index: 0;
-    mix-blend-mode: multiply;
+    mix-blend-mode: var(--wash-blend);
   }
 
   #root { position: relative; z-index: 1; }

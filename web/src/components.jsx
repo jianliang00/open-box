@@ -59,7 +59,7 @@ const Pill = ({ children, tone = "default", mono = false, size = "sm" }) => {
     default: { bg: "var(--bg-2)", fg: "var(--ink-2)", border: "var(--line)" },
     accent:  { bg: "var(--accent-bg)", fg: "var(--accent)", border: "color-mix(in oklch, var(--accent) 25%, transparent)" },
     good:    { bg: "var(--good-bg)",   fg: "var(--good)",   border: "color-mix(in oklch, var(--good) 25%, transparent)" },
-    ink:     { bg: "var(--ink)",       fg: "#fff",          border: "var(--ink)" },
+    ink:     { bg: "var(--ink)",       fg: "var(--bg)",     border: "var(--ink)" },
     ghost:   { bg: "transparent",      fg: "var(--ink-3)",  border: "var(--line-2)" },
   };
   const t = tones[tone] || tones.default;
@@ -101,8 +101,8 @@ const Btn = ({ variant = "solid", children, icon, iconRight, onClick, href, size
     border: "1px solid transparent",
   };
   const variants = {
-    solid: { background: "var(--ink)", color: "#fff", boxShadow: "0 1px 0 rgba(255,255,255,0.08) inset, 0 1px 2px rgba(0,0,0,0.1)", borderColor: "var(--ink)" },
-    accent:{ background: "var(--accent)", color: "#fff", boxShadow: "0 1px 0 rgba(255,255,255,0.2) inset, 0 2px 6px color-mix(in oklch, var(--accent) 30%, transparent)", borderColor: "color-mix(in oklch, var(--accent) 70%, black)" },
+    solid: { background: "var(--ink)", color: "var(--bg)", boxShadow: "0 1px 0 rgba(255,255,255,0.08) inset, 0 1px 2px rgba(0,0,0,0.1)", borderColor: "var(--ink)" },
+    accent:{ background: "var(--accent)", color: "var(--accent-ink)", boxShadow: "0 1px 0 rgba(255,255,255,0.2) inset, 0 2px 6px color-mix(in oklch, var(--accent) 30%, transparent)", borderColor: "color-mix(in oklch, var(--accent) 70%, black)" },
     ghost: { background: "transparent", color: "var(--ink)", borderColor: "var(--line-2)" },
     soft:  { background: "var(--surface)", color: "var(--ink)", borderColor: "var(--line)", boxShadow: "0 1px 0 rgba(0,0,0,0.02)" },
     link:  { background: "transparent", color: "var(--ink)", padding: 0, height: "auto", border: "none" },
@@ -152,7 +152,7 @@ const MacWindow = ({ title, children, tone = "light", style = {}, bodyStyle = {}
   const isDark = tone === "dark";
   return (
     <div style={{
-      background: isDark ? "#1c1b18" : "#fdfcf9",
+      background: isDark ? "#1c1b18" : "var(--surface)",
       borderRadius: 12,
       overflow: "hidden",
       border: `1px solid ${isDark ? "#2c2a26" : "var(--line)"}`,
@@ -162,7 +162,7 @@ const MacWindow = ({ title, children, tone = "light", style = {}, bodyStyle = {}
       <div style={{
         display: "flex", alignItems: "center", gap: 10,
         padding: "10px 14px",
-        background: isDark ? "#23211d" : "#f1efe8",
+        background: isDark ? "#23211d" : "var(--bg-2)",
         borderBottom: `1px solid ${isDark ? "#2c2a26" : "var(--line)"}`,
         fontFamily: "var(--font-body)", fontSize: 12,
         color: isDark ? "#9a968a" : "var(--ink-3)",

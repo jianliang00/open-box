@@ -80,12 +80,28 @@ const TweaksPanel = ({ tweaks, setTweak, visible }) => {
 const App = () => {
   const [tweaks, setTweaks] = React.useState(window.__TWEAKS__);
   const [editMode, setEditMode] = React.useState(false);
+  const [theme, setTheme] = React.useState(() => {
+    try {
+      return localStorage.getItem("openbox-theme") || document.documentElement.dataset.theme || "light";
+    } catch (_) {
+      return document.documentElement.dataset.theme || "light";
+    }
+  });
+  const [lang, setLang] = React.useState(() => {
+    try {
+      return localStorage.getItem("openbox-lang") || window.__OPENBOX_LANG__ || "en";
+    } catch (_) {
+      return window.__OPENBOX_LANG__ || "en";
+    }
+  });
 
   const setTweak = (k, v) => {
     const next = { ...tweaks, [k]: v };
     setTweaks(next);
     window.parent.postMessage({ type: "__edit_mode_set_keys", edits: { [k]: v } }, "*");
   };
+  const toggleTheme = () => setTheme(value => value === "dark" ? "light" : "dark");
+  const toggleLang = () => setLang(value => value === "zh" ? "en" : "zh");
 
   React.useEffect(() => {
     const onMsg = (e) => {
@@ -100,9 +116,9 @@ const App = () => {
   // apply tweaks
   React.useEffect(() => {
     const hue = tweaks.accent_hue;
-    document.documentElement.style.setProperty("--accent", `oklch(0.62 0.16 ${hue})`);
-    document.documentElement.style.setProperty("--accent-bg", `oklch(0.95 0.03 ${hue})`);
-  }, [tweaks.accent_hue]);
+    document.documentElement.style.setProperty("--accent", theme === "dark" ? `oklch(0.70 0.16 ${hue})` : `oklch(0.62 0.16 ${hue})`);
+    document.documentElement.style.setProperty("--accent-bg", theme === "dark" ? `oklch(0.24 0.05 ${hue})` : `oklch(0.95 0.03 ${hue})`);
+  }, [tweaks.accent_hue, theme]);
 
   React.useEffect(() => {
     // Toggle serif use by adding a class
@@ -125,15 +141,42 @@ const App = () => {
     document.documentElement.style.setProperty("--density-scale", scale);
   }, [tweaks.density]);
 
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    const themeColor = theme === "dark" ? "#11120f" : "#f6f5f1";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor);
+    try { localStorage.setItem("openbox-theme", theme); } catch (_) {}
+  }, [theme]);
+
+  React.useEffect(() => {
+    window.__OPENBOX_LANG__ = lang;
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+    const title = lang === "zh"
+      ? "OpenBox — 隔离 Mac 沙盒，一个可视化应用"
+      : "OpenBox — Isolated Mac sandboxes, one visual app";
+    const description = lang === "zh"
+      ? "OpenBox 用于在 Apple Silicon 上创建隔离的 macOS 沙盒，支持客体桌面、命令执行和一次性环境。"
+      : "OpenBox creates isolated macOS sandboxes on Apple Silicon, with guest desktop sessions, command execution, and disposable environments for agents and app tests.";
+    document.title = title;
+    document.querySelector('meta[name="description"]')?.setAttribute("content", description);
+    document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);
+    document.querySelector('meta[property="og:description"]')?.setAttribute("content", description);
+    document.querySelector('meta[name="twitter:title"]')?.setAttribute("content", title);
+    document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", description);
+    try { localStorage.setItem("openbox-lang", lang); } catch (_) {}
+  }, [lang]);
+
+  document.documentElement.dataset.theme = theme;
+  window.__OPENBOX_LANG__ = lang;
+
   return (
     <>
-      <Nav/>
+      <Nav theme={theme} lang={lang} onToggleTheme={toggleTheme} onToggleLang={toggleLang}/>
       <Hero/>
       <Features/>
       <Flow/>
       <TerminalDemo/>
       <Compat/>
-      <Release/>
       <FAQ/>
       <Footer/>
       <TweaksPanel tweaks={tweaks} setTweak={setTweak} visible={editMode}/>
