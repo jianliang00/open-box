@@ -161,6 +161,19 @@ struct ToolbarBreadcrumb: View {
     }
 }
 
+struct OpenBoxBrandIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image("OpenBoxIcon")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
 struct SidebarView: View {
     @EnvironmentObject private var appState: AppState
     @Binding var selection: SidebarSection
@@ -168,14 +181,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(AppTheme.accent)
-                    Image(systemName: "cube.box.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .frame(width: 28, height: 28)
+                OpenBoxBrandIcon(size: 28)
 
                 Text("OpenBox")
                     .font(.system(size: 15, weight: .semibold))
@@ -474,11 +480,7 @@ struct SandboxTreeSandboxRow: View {
                     .foregroundColor(AppTheme.outline)
                     .frame(width: 12)
 
-                SandboxGlyph(
-                    systemImage: "cube.box.fill",
-                    color: sandbox.status.color,
-                    fill: sandbox.status.fillColor
-                )
+                SandboxGlyph(color: sandbox.status.color, fill: sandbox.status.fillColor)
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -557,19 +559,21 @@ struct SandboxTreeSandboxRow: View {
 }
 
 struct SandboxGlyph: View {
-    let systemImage: String
     let color: Color
     let fill: Color
+    var size: CGFloat = 30
+    var symbolSize: CGFloat = 13
+    var cornerRadius: CGFloat = 8
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(fill)
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
+            Image(systemName: "cube.box.fill")
+                .font(.system(size: symbolSize, weight: .semibold))
                 .foregroundColor(color)
         }
-        .frame(width: 30, height: 30)
+        .frame(width: size, height: size)
     }
 }
 
@@ -1085,14 +1089,7 @@ struct SandboxSummaryCard: View {
 
     private var summaryHeader: some View {
         HStack(alignment: .top, spacing: 18) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(AppTheme.sandboxIconGradient)
-                Image(systemName: "cube.box.fill")
-                    .font(.system(size: 27, weight: .semibold))
-                    .foregroundColor(.white)
-            }
-            .frame(width: 62, height: 62)
+            OpenBoxBrandIcon(size: 62)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(sandbox.name)
@@ -1275,7 +1272,7 @@ struct SandboxDesktopPanel: View {
                 }
 
                 HStack(spacing: 10) {
-                    PathCapsule(systemImage: "cube.box", text: sandbox.id)
+                    PathCapsule(brandIconText: sandbox.id)
                     if sandbox.isMacOSGuest {
                         PathCapsule(
                             systemImage: "display",
@@ -2236,13 +2233,30 @@ struct InfoNote: View {
 }
 
 struct PathCapsule: View {
-    let systemImage: String
+    let systemImage: String?
     let text: String
+    let usesBrandIcon: Bool
+
+    init(systemImage: String, text: String) {
+        self.systemImage = systemImage
+        self.text = text
+        self.usesBrandIcon = false
+    }
+
+    init(brandIconText text: String) {
+        self.systemImage = nil
+        self.text = text
+        self.usesBrandIcon = true
+    }
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .foregroundColor(AppTheme.outline)
+            if usesBrandIcon {
+                OpenBoxBrandIcon(size: 14)
+            } else if let systemImage {
+                Image(systemName: systemImage)
+                    .foregroundColor(AppTheme.outline)
+            }
             Text(text)
                 .font(AppTheme.monoSmallFont)
                 .foregroundColor(AppTheme.secondary)
@@ -3080,15 +3094,6 @@ enum AppTheme {
     static let highlight = selectionMark
     static let warning = Color(red: 255 / 255, green: 149 / 255, blue: 0 / 255)
     static let danger = Color(red: 255 / 255, green: 59 / 255, blue: 48 / 255)
-    static let sandboxIconGradient = LinearGradient(
-        colors: [
-            Color(red: 0 / 255, green: 168 / 255, blue: 220 / 255),
-            Color(red: 48 / 255, green: 191 / 255, blue: 87 / 255)
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-
     static let bodyFont = Font.system(size: 13, weight: .regular)
     static let labelFont = Font.system(size: 11, weight: .semibold)
     static let metadataFont = Font.system(size: 11, weight: .regular)

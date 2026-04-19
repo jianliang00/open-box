@@ -1,4 +1,6 @@
-# OpenBox
+<p align="center">
+  <img src="docs/brand/banner_dark_single_left_1600x500.png" alt="OpenBox">
+</p>
 
 **A desktop app for creating and managing isolated Mac environments.**
 
@@ -135,7 +137,7 @@ All dependency versions and revisions are pinned in
 - `OpenBoxUITests/` currently contains launch smoke-test scaffolding.
 - `Scripts/embed-container-runtime.sh` builds and embeds the container runtime
   products into the app bundle.
-- `docs/` contains compatibility notes and screenshots.
+- `docs/` contains compatibility notes, brand assets, and screenshots.
 
 ## Releases
 
